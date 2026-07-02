@@ -11,7 +11,7 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from nidata_collector.devices import get_system_snapshot, reserve_network_devices
+from nidata_collector.devices import get_system_snapshot, reserve_network_devices, unreserve_network_devices
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -27,6 +27,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Override an existing network device reservation.",
     )
     parser.add_argument("--json", action="store_true", help="Print machine-readable JSON.")
+    parser.add_argument(
+        "--keep-reservation",
+        action="store_true",
+        help="Keep network device reservation after probing.",
+    )
     return parser
 
 
@@ -65,16 +70,28 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
 
     reservations = []
+    reserved_devices = []
     if not args.no_reserve:
         reservations = reserve_network_devices(override=args.override_reservation)
+        reserved_devices = [item.device for item in reservations if item.ok]
 
-    snapshot = get_system_snapshot()
-    snapshot["reservations"] = [item.__dict__ for item in reservations]
+    try:
+        snapshot = get_system_snapshot()
+        snapshot["reservations"] = [item.__dict__ for item in reservations]
 
-    if args.json:
-        print(json.dumps(snapshot, indent=2))
-    else:
-        print_text(snapshot)
+        if args.json:
+            print(json.dumps(snapshot, indent=2))
+        else:
+            print_text(snapshot)
+    finally:
+        if reserved_devices and not args.keep_reservation:
+            releases = unreserve_network_devices(reserved_devices)
+            if not args.json:
+                print("Network releases:")
+                for item in releases:
+                    status = "OK" if item.ok else "FAILED"
+                    message = f": {item.message}" if item.message else ""
+                    print(f"  - {item.device}: {status}{message}")
     return 0
 
 

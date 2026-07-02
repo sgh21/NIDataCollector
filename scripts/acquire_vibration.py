@@ -16,7 +16,7 @@ from nidata_collector.acquisition import (
     generate_simulated_acceleration,
 )
 from nidata_collector.analysis import compute_channel_stats
-from nidata_collector.devices import find_ai_channels, reserve_network_devices
+from nidata_collector.devices import find_ai_channels, reserve_network_devices, unreserve_network_devices
 from nidata_collector.output import build_output_paths, save_csv, save_metadata, save_waveform_plot
 
 
@@ -123,11 +123,14 @@ def main(argv: list[str] | None = None) -> int:
     if args.min_g >= args.max_g:
         raise ValueError("--min-g must be smaller than --max-g.")
 
+    reserved_devices = []
     if not args.simulate and not args.no_reserve:
         for item in reserve_network_devices(override=args.override_reservation):
             status = "OK" if item.ok else "FAILED"
             message = f": {item.message}" if item.message else ""
             print(f"Reservation {item.device}: {status}{message}")
+            if item.ok:
+                reserved_devices.append(item.device)
 
     channels = resolve_channels(args)
     config = AcquisitionConfig(
@@ -142,37 +145,44 @@ def main(argv: list[str] | None = None) -> int:
         settle_s=args.settle_seconds,
     )
 
-    if args.simulate:
-        time_s, data = generate_simulated_acceleration(config)
-    else:
-        time_s, data = acquire_acceleration(config)
+    try:
+        if args.simulate:
+            time_s, data = generate_simulated_acceleration(config)
+        else:
+            time_s, data = acquire_acceleration(config)
 
-    paths = build_output_paths(args.output_dir, args.prefix)
-    save_csv(paths.csv_path, time_s, data, channels)
-    save_waveform_plot(paths.png_path, time_s, data, channels, show=args.show)
+        paths = build_output_paths(args.output_dir, args.prefix)
+        save_csv(paths.csv_path, time_s, data, channels)
+        save_waveform_plot(paths.png_path, time_s, data, channels, show=args.show)
 
-    stats = compute_channel_stats(data, channels)
-    metadata = {
-        "mode": "simulated" if args.simulate else "nidaqmx",
-        "channels": channels,
-        "sample_rate_hz": args.sample_rate,
-        "duration_s": args.duration,
-        "samples_per_channel": int(data.shape[1]),
-        "sensor_sensitivity_mv_per_g": args.sensor_sensitivity_mv_per_g,
-        "min_g": args.min_g,
-        "max_g": args.max_g,
-        "excitation_current_a": args.excitation_current,
-        "coupling": None if args.coupling == "NONE" else args.coupling,
-        "settle_s": args.settle_seconds,
-        "stats": stats,
-    }
-    save_metadata(paths.json_path, metadata)
+        stats = compute_channel_stats(data, channels)
+        metadata = {
+            "mode": "simulated" if args.simulate else "nidaqmx",
+            "channels": channels,
+            "sample_rate_hz": args.sample_rate,
+            "duration_s": args.duration,
+            "samples_per_channel": int(data.shape[1]),
+            "sensor_sensitivity_mv_per_g": args.sensor_sensitivity_mv_per_g,
+            "min_g": args.min_g,
+            "max_g": args.max_g,
+            "excitation_current_a": args.excitation_current,
+            "coupling": None if args.coupling == "NONE" else args.coupling,
+            "settle_s": args.settle_seconds,
+            "stats": stats,
+        }
+        save_metadata(paths.json_path, metadata)
 
-    print(f"Acquired {data.shape[1]} samples/channel from {len(channels)} channel(s).")
-    print(f"CSV: {paths.csv_path}")
-    print(f"PNG: {paths.png_path}")
-    print(f"Metadata: {paths.json_path}")
-    print_stats(stats)
+        print(f"Acquired {data.shape[1]} samples/channel from {len(channels)} channel(s).")
+        print(f"CSV: {paths.csv_path}")
+        print(f"PNG: {paths.png_path}")
+        print(f"Metadata: {paths.json_path}")
+        print_stats(stats)
+    finally:
+        if reserved_devices:
+            for item in unreserve_network_devices(reserved_devices):
+                status = "OK" if item.ok else "FAILED"
+                message = f": {item.message}" if item.message else ""
+                print(f"Release {item.device}: {status}{message}")
     return 0
 
 

@@ -48,30 +48,37 @@ def save_waveform_plot(
     channels: list[str],
     show: bool = False,
 ) -> None:
-    if not show:
-        import matplotlib
+    from PySide6 import QtWidgets
+    import pyqtgraph as pg
+    import pyqtgraph.exporters
 
-        matplotlib.use("Agg")
-
-    import matplotlib.pyplot as plt
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    pg.setConfigOptions(antialias=False)
 
     rows = len(channels)
-    fig_height = max(3.5, 2.2 * rows)
-    fig, axes = plt.subplots(rows, 1, sharex=True, figsize=(11, fig_height))
-    if rows == 1:
-        axes = [axes]
+    widget = pg.GraphicsLayoutWidget()
+    widget.resize(1100, max(360, rows * 220))
+    widget.setWindowTitle("Vibration Acceleration")
 
-    for index, axis in enumerate(axes):
-        axis.plot(time_s, data[index], linewidth=0.8)
-        axis.set_ylabel("g")
-        axis.set_title(channels[index], fontsize=10)
-        axis.grid(True, linewidth=0.4, alpha=0.35)
+    previous_plot = None
+    for index, channel in enumerate(channels):
+        plot = widget.addPlot(row=index, col=0, title=channel)
+        plot.showGrid(x=True, y=True, alpha=0.25)
+        plot.setLabel("left", "g")
+        plot.plot(time_s, data[index], pen=pg.mkPen("#1f77b4", width=1))
+        if previous_plot is not None:
+            plot.setXLink(previous_plot)
+        previous_plot = plot
+    if previous_plot is not None:
+        previous_plot.setLabel("bottom", "Time", units="s")
 
-    axes[-1].set_xlabel("Time (s)")
-    fig.suptitle("Vibration Acceleration")
-    fig.tight_layout()
-    fig.savefig(path, dpi=150)
+    app.processEvents()
+    exporter = pyqtgraph.exporters.ImageExporter(widget.scene())
+    exporter.parameters()["width"] = 1650
+    exporter.export(str(path))
 
     if show:
-        plt.show()
-    plt.close(fig)
+        widget.show()
+        app.exec()
+    else:
+        widget.close()

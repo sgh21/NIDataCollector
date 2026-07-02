@@ -1,0 +1,274 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <title>run_20260629_161346 振动通道同步误差分析</title>
+  <style>
+    body {
+      margin: 0;
+      background: #f5f7fa;
+      color: #172033;
+      font-family: "Microsoft YaHei UI", "Segoe UI", Arial, sans-serif;
+      line-height: 1.65;
+    }
+    main {
+      max-width: 1180px;
+      margin: 0 auto;
+      padding: 28px 28px 48px;
+    }
+    section {
+      background: #fff;
+      border: 1px solid #e5e7eb;
+      border-radius: 6px;
+      padding: 20px 24px;
+      margin: 16px 0;
+    }
+    h1, h2, h3 {
+      margin: 0 0 12px;
+      line-height: 1.3;
+    }
+    h1 {
+      font-size: 26px;
+    }
+    h2 {
+      font-size: 19px;
+      border-left: 4px solid #2563eb;
+      padding-left: 10px;
+    }
+    h3 {
+      font-size: 16px;
+      color: #334155;
+    }
+    .meta {
+      color: #64748b;
+      font-size: 13px;
+      margin: 4px 0 0;
+    }
+    .conclusion {
+      border-left: 5px solid #0f766e;
+      background: #f0fdfa;
+    }
+    .warning {
+      border-left: 5px solid #d97706;
+      background: #fffbeb;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 12px 0;
+      font-size: 14px;
+    }
+    th, td {
+      border: 1px solid #d8dee8;
+      padding: 8px 10px;
+      vertical-align: top;
+      text-align: left;
+    }
+    th {
+      background: #eef2f7;
+      font-weight: 600;
+    }
+    code {
+      background: #eef2f7;
+      padding: 1px 4px;
+      border-radius: 3px;
+      font-family: Consolas, monospace;
+      font-size: 0.95em;
+    }
+    img {
+      max-width: 100%;
+      border: 1px solid #d8dee8;
+      border-radius: 4px;
+      background: #fff;
+      margin-top: 10px;
+    }
+    .small {
+      color: #64748b;
+      font-size: 13px;
+    }
+    .ok {
+      color: #047857;
+      font-weight: 600;
+    }
+    .bad {
+      color: #b45309;
+      font-weight: 600;
+    }
+    .mono {
+      font-family: Consolas, monospace;
+    }
+  </style>
+</head>
+<body>
+<main>
+  <h1>run_20260629_161346 振动通道同步误差分析</h1>
+  <p class="meta">数据目录：<code>data/runs/run_20260629_161346</code>；分析对象：NI 9234 三个加速度通道 <code>ai0</code>、<code>ai1</code>、<code>ai2</code>。</p>
+
+  <section class="conclusion">
+    <h2>结论先说</h2>
+    <p>
+      本次敲击试验可以用于观察三路传感器对同一机械冲击的相对响应，但它不能直接等价为 DAQ 纯通道同步误差。
+      因为传感器放在试件不同位置或不同方向时，互相关得到的时延同时包含机械波传播、结构模态、传感器安装和极性差异。
+    </p>
+    <p>
+      在更适合做同步判断的“早期短窗”内，<code>ai0</code> 与 <code>ai2</code> 的互相关质量较高，平均绝对相关系数为 0.857，
+      中位时差为 4.1 us，全部 11 次强敲击结果都落在一个采样周期 39.06 us 以内。可以判定 <code>ai0</code> 与 <code>ai2</code>
+      在当前数据里没有观察到超过 1 个采样点的相对采集时差。
+    </p>
+    <p>
+      <code>ai1</code> 与另外两路的相关性较低，早期短窗下 <code>ai1-ai0</code> 的表观延时约 214 us，且长窗互相关会跳到毫秒级延时。
+      这更像是试件传播路径、安装方向或局部模态导致的响应相位差，不应解释为 NI 9234 通道不同步。
+      因此，本次数据对“三通道采集硬同步误差”的结论是：<span class="bad">ai0-ai2 可判定为 1 sample 内；包含 ai1 的三通道整体同步误差仍需改进试验后再判定</span>。
+    </p>
+  </section>
+
+  <section>
+    <h2>数据概况</h2>
+    <table>
+      <tr><th>项目</th><th>数值</th><th>说明</th></tr>
+      <tr><td>采样率</td><td>25,600 Hz</td><td>采样周期 39.0625 us；单纯基于采样点的原始时间分辨率为 1 sample。</td></tr>
+      <tr><td>振动通道</td><td><code>cDAQ9185-254D6AAMod1/ai0</code>、<code>ai1</code>、<code>ai2</code></td><td>同一 NI 9234 模块内三通道。</td></tr>
+      <tr><td>记录长度</td><td>160,000 samples，6.25 s</td><td>6 个完整 1 s segment，加 1 个 0.25 s partial segment。</td></tr>
+      <tr><td>强敲击事件</td><td>11 次</td><td>由三通道矢量幅值的鲁棒阈值自动筛选；低幅小敲击未纳入统计。</td></tr>
+      <tr><td>判断基准</td><td>1 sample = 39.06 us</td><td>亚采样插值只用于辅助估计，不应把几微秒数字理解为真实硬件精度。</td></tr>
+    </table>
+  </section>
+
+  <section>
+    <h2>分析方法</h2>
+    <h3>1. 敲击事件检测</h3>
+    <p>
+      对三路加速度去中位值后计算矢量幅值：
+      <code>sqrt(ai0^2 + ai1^2 + ai2^2)</code>。阈值取
+      <code>max(median + 12 * 1.4826 * MAD, P99.5)</code>，并设置 0.25 s 最小事件间隔，最终得到 11 个强敲击事件。
+    </p>
+
+    <h3>2. 互相关时延估计</h3>
+    <p>
+      每次敲击以矢量峰值为中心，取早期短窗：峰值前 1 ms、峰值后 5 ms。对每个通道对进行零均值归一化互相关，
+      搜索范围为 ±0.5 ms。时延符号定义为：<strong>正值表示目标通道相对参考通道滞后</strong>。
+    </p>
+    <p>
+      选择早期短窗作为主结果，是为了尽量使用冲击刚到达时的波形，减少后续振铃、反射和结构模态对相关峰的干扰。
+      同时保留长窗互相关作为敏感性检查，用来判断延时结果是否被模态周期锁定。
+    </p>
+  </section>
+
+  <section>
+    <h2>主结果：早期短窗互相关</h2>
+    <table>
+      <tr>
+        <th>通道对</th>
+        <th>中位时差</th>
+        <th>平均时差</th>
+        <th>标准差</th>
+        <th>平均绝对相关系数</th>
+        <th>判定</th>
+      </tr>
+      <tr>
+        <td><code>ai1 - ai0</code></td>
+        <td>+213.8 us</td>
+        <td>+214.6 us</td>
+        <td>13.4 us</td>
+        <td>0.505</td>
+        <td><span class="bad">低可信</span>：相关性偏低，主要反映机械响应差异。</td>
+      </tr>
+      <tr>
+        <td><code>ai2 - ai0</code></td>
+        <td>+4.1 us</td>
+        <td>+11.7 us</td>
+        <td>12.6 us</td>
+        <td>0.857</td>
+        <td><span class="ok">通过</span>：全部事件落在 ±1 sample 内。</td>
+      </tr>
+      <tr>
+        <td><code>ai2 - ai1</code></td>
+        <td>-168.8 us</td>
+        <td>-214.2 us</td>
+        <td>127.2 us</td>
+        <td>0.572</td>
+        <td><span class="bad">低可信</span>：包含低相关和边界峰，不能作为采集同步误差。</td>
+      </tr>
+    </table>
+    <p class="small">
+      注：如果把 39.06 us 作为 1 个采样点，则 <code>ai2-ai0</code> 的中位时差约 0.10 sample，平均约 0.30 sample；
+      <code>ai1-ai0</code> 的表观时差约 5.5 samples。
+    </p>
+    <img src="assets/early_window_delay_by_event.png" alt="Early-window cross-correlation delay by event">
+  </section>
+
+  <section class="warning">
+    <h2>长窗互相关的风险</h2>
+    <p>
+      采用更长的 40 ms 振铃窗口时，部分通道对的互相关峰会跳到 0.8 ms 到 1.9 ms 的位置。
+      这说明敲击后的振铃、反射和结构模态会主导相关峰，而不是采集卡通道的同步误差。
+      因此，同步测试不要直接拿完整衰减振铃段做互相关；应尽量使用冲击到达早期短窗，并结合相关系数筛选有效事件。
+    </p>
+    <img src="assets/delay_by_event.png" alt="Long-window cross-correlation delay by event">
+  </section>
+
+  <section>
+    <h2>性能指标判断</h2>
+    <table>
+      <tr><th>指标</th><th>建议判据</th><th>本次结果</th></tr>
+      <tr>
+        <td>采样分辨率</td>
+        <td>25.6 kHz 下 1 sample = 39.06 us。</td>
+        <td>当前数据的硬判定粒度应按 39.06 us 解释。</td>
+      </tr>
+      <tr>
+        <td>高可信通道对同步</td>
+        <td>早期短窗绝对相关系数大于 0.8，且绝对时差小于 1 sample。</td>
+        <td><code>ai0-ai2</code> 满足，判定为 sample-level 同步。</td>
+      </tr>
+      <tr>
+        <td>三通道整体同步</td>
+        <td>所有通道对都应高相关，并且时差稳定在 1 sample 内。</td>
+        <td><code>ai1</code> 相关性低且表观延时为百微秒到毫秒级，当前试验不满足纯同步误差判定条件。</td>
+      </tr>
+      <tr>
+        <td>当前可报告水平</td>
+        <td>区分“硬件同步”和“机械响应时差”。</td>
+        <td>可报告 <code>ai0-ai2</code> 未见超过 1 sample 的相对时差；三通道硬同步需要补充更受控的试验。</td>
+      </tr>
+    </table>
+  </section>
+
+  <section>
+    <h2>波形和事件检测</h2>
+    <p>
+      下图展示三通道完整波形、矢量幅值和被纳入统计的 11 次强敲击事件。
+      可以看到记录中还存在一些较小敲击或反射响应，未超过阈值，因此未进入同步误差统计。
+    </p>
+    <img src="assets/waveform_detected_impacts.png" alt="Acceleration waveforms and detected impacts">
+  </section>
+
+  <section>
+    <h2>下一步建议</h2>
+    <ol>
+      <li>如果目标是验证采集硬同步，建议把三个传感器尽量共点、同方向安装在刚性小块上，或用同一个校准振动源/电信号分配到多通道，减少机械传播差异。</li>
+      <li>如果目标是研究试件传播路径，则当前百微秒级到毫秒级表观时差是有意义的响应时差，但应记录传感器间距、敲击点位置和方向。</li>
+      <li>同步误差报告建议同时给出时差和互相关系数；低于 0.7 的相关结果不要用于硬同步判定。</li>
+      <li>后续采集时应在通道元数据中填写传感器编号、测点、方向、安装方式，避免无法解释 <code>ai1</code> 这类响应差异。</li>
+    </ol>
+  </section>
+
+  <section>
+    <h2>归档文件</h2>
+    <table>
+      <tr><th>文件</th><th>用途</th></tr>
+      <tr><td><a href="assets/sync_analysis_results.json">assets/sync_analysis_results.json</a></td><td>主分析完整数值结果。</td></tr>
+      <tr><td><a href="assets/sync_event_delays.csv">assets/sync_event_delays.csv</a></td><td>逐敲击、逐通道对的互相关延时表。</td></tr>
+      <tr><td><a href="assets/sensitivity_probe.json">assets/sensitivity_probe.json</a></td><td>不同窗口长度的敏感性检查结果。</td></tr>
+      <tr><td><a href="assets/waveform_detected_impacts.png">assets/waveform_detected_impacts.png</a></td><td>波形和事件检测图。</td></tr>
+      <tr><td><a href="assets/early_window_delay_by_event.png">assets/early_window_delay_by_event.png</a></td><td>早期短窗互相关主结果图。</td></tr>
+      <tr><td><a href="assets/delay_by_event.png">assets/delay_by_event.png</a></td><td>长窗互相关敏感性图。</td></tr>
+    </table>
+    <p class="small">
+      临时分析代码位于系统临时目录 <code>C:\Users\sgh25\AppData\Local\Temp\nidata_sync_run_20260629_161346</code>，
+      未放入仓库。
+    </p>
+  </section>
+</main>
+</body>
+</html>

@@ -1,0 +1,770 @@
+{
+  "run_dir": "D:\\WorkSpace\\ZMProject\\NIDataCollector\\data\\runs\\run_20260629_161346",
+  "analysis_output_dir": "C:\\Users\\sgh25\\AppData\\Local\\Temp\\nidata_sync_run_20260629_161346\\outputs",
+  "sample_count": 160000,
+  "duration_s": 6.25,
+  "sample_rate_hz": 25600.000000023283,
+  "sample_period_us": 39.06249999996447,
+  "channels": [
+    "cDAQ9185-254D6AAMod1/ai0",
+    "cDAQ9185-254D6AAMod1/ai1",
+    "cDAQ9185-254D6AAMod1/ai2"
+  ],
+  "settings": {
+    "pre_ms": 8.0,
+    "post_ms": 32.0,
+    "correlation_window_ms": 40.0,
+    "max_lag_ms": 2.0,
+    "min_impact_separation_s": 0.25,
+    "detection_percentile": 99.5,
+    "robust_sigma": 12.0
+  },
+  "detection": {
+    "vector_median_g": 0.005898663159499571,
+    "vector_mad_g": 0.0042109519810056275,
+    "robust_threshold_g": 0.08081655204396689,
+    "percentile_threshold_g": 1.0563064497702042,
+    "threshold_g": 1.0563064497702042,
+    "percentiles_g": {
+      "50": 0.005898663159499571,
+      "90": 0.12774054473945146,
+      "95": 0.30458168343821274,
+      "99": 0.8239678940643663,
+      "99.5": 1.0563064497702042,
+      "99.9": 1.6000888648407854,
+      "99.95": 1.8779509772117216,
+      "99.99": 2.5794904138645145,
+      "100": 3.316397128237845
+    },
+    "impact_peak_times_s": [
+      0.5203515625,
+      0.9346484375,
+      1.3460546875,
+      1.7516796875,
+      2.1438671875,
+      2.7981640625,
+      3.2549609375,
+      4.349375,
+      4.968515625,
+      5.3837890625,
+      5.8101171875
+    ],
+    "impact_peak_vector_g": [
+      1.6288356514122462,
+      1.8420235407300394,
+      2.821638241990651,
+      1.858069649811317,
+      1.0935884310715513,
+      1.7676544855669993,
+      1.7105461073967068,
+      1.9392224670710894,
+      2.18687831513597,
+      1.5288198664183228,
+      3.316397128237845
+    ]
+  },
+  "events": [
+    {
+      "event": 1,
+      "peak_sample_index": 13321,
+      "peak_time_s": 0.5203515625,
+      "window_start_s": 0.51234375,
+      "window_stop_s": 0.5523046875,
+      "peak_values_g": {
+        "cDAQ9185-254D6AAMod1/ai0": -1.0893256179800002,
+        "cDAQ9185-254D6AAMod1/ai1": -0.01626437932,
+        "cDAQ9185-254D6AAMod1/ai2": -1.2076327792
+      },
+      "pair_results": {
+        "cDAQ9185-254D6AAMod1/ai1 minus cDAQ9185-254D6AAMod1/ai0": {
+          "lag_samples": 48.61523254828301,
+          "corr": 0.6166598954732924,
+          "abs_corr": 0.6166598954732924,
+          "polarity": 1,
+          "lag_us": 1899.032521415578,
+          "reference": "cDAQ9185-254D6AAMod1/ai0",
+          "target": "cDAQ9185-254D6AAMod1/ai1",
+          "definition": "positive lag means target channel is delayed relative to reference channel"
+        },
+        "cDAQ9185-254D6AAMod1/ai2 minus cDAQ9185-254D6AAMod1/ai0": {
+          "lag_samples": -35.611637682738895,
+          "corr": -0.8024394079395935,
+          "abs_corr": 0.8024394079395935,
+          "polarity": -1,
+          "lag_us": -1391.079596980723,
+          "reference": "cDAQ9185-254D6AAMod1/ai0",
+          "target": "cDAQ9185-254D6AAMod1/ai2",
+          "definition": "positive lag means target channel is delayed relative to reference channel"
+        },
+        "cDAQ9185-254D6AAMod1/ai2 minus cDAQ9185-254D6AAMod1/ai1": {
+          "lag_samples": 22.307921070540555,
+          "corr": 0.5919061840281671,
+          "abs_corr": 0.5919061840281671,
+          "polarity": 1,
+          "lag_us": 871.4031668171979,
+          "reference": "cDAQ9185-254D6AAMod1/ai1",
+          "target": "cDAQ9185-254D6AAMod1/ai2",
+          "definition": "positive lag means target channel is delayed relative to reference channel"
+        }
+      }
+    },
+    {
+      "event": 2,
+      "peak_sample_index": 23927,
+      "peak_time_s": 0.9346484375,
+      "window_start_s": 0.926640625,
+      "window_stop_s": 0.9666015625,
+      "peak_values_g": {
+        "cDAQ9185-254D6AAMod1/ai0": -1.27671814013,
+        "cDAQ9185-254D6AAMod1/ai1": 0.22628963676,
+        "cDAQ9185-254D6AAMod1/ai2": -1.30559684464
+      },
+      "pair_results": {
+        "cDAQ9185-254D6AAMod1/ai1 minus cDAQ9185-254D6AAMod1/ai0": {
+          "lag_samples": 48.78712618750819,
+          "corr": 0.5810236907832808,
+          "abs_corr": 0.5810236907832808,
+          "polarity": 1,
+          "lag_us": 1905.7471166978055,
+          "reference": "cDAQ9185-254D6AAMod1/ai0",
+          "target": "cDAQ9185-254D6AAMod1/ai1",
+          "definition": "positive lag means target channel is delayed relative to reference channel"
+        },
+        "cDAQ9185-254D6AAMod1/ai2 minus cDAQ9185-254D6AAMod1/ai0": {
+          "lag_samples": -35.64591521271194,
+          "corr": -0.7949656274368588,
+          "abs_corr": 0.7949656274368588,
+          "polarity": -1,
+          "lag_us": -1392.4185629952938,
+          "reference": "cDAQ9185-254D6AAMod1/ai0",
+          "target": "cDAQ9185-254D6AAMod1/ai2",
+          "definition": "positive lag means target channel is delayed relative to reference channel"
+        },
+        "cDAQ9185-254D6AAMod1/ai2 minus cDAQ9185-254D6AAMod1/ai1": {
+          "lag_samples": 22.301020841185967,
+          "corr": 0.5631209209946473,
+          "abs_corr": 0.5631209209946473,
+          "polarity": 1,
+          "lag_us": 871.1336266080345,
+          "reference": "cDAQ9185-254D6AAMod1/ai1",
+          "target": "cDAQ9185-254D6AAMod1/ai2",
+          "definition": "positive lag means target channel is delayed relative to reference channel"
+        }
+      }
+    },
+    {
+      "event": 3,
+      "peak_sample_index": 34459,
+      "peak_time_s": 1.3460546875,
+      "window_start_s": 1.338046875,
+      "window_stop_s": 1.3780078125,
+      "peak_values_g": {
+        "cDAQ9185-254D6AAMod1/ai0": -1.9769920679300002,
+        "cDAQ9185-254D6AAMod1/ai1": 0.32853837436,
+        "cDAQ9185-254D6AAMod1/ai2": -1.98342864496
+      },
+      "pair_results": {
+        "cDAQ9185-254D6AAMod1/ai1 minus cDAQ9185-254D6AAMod1/ai0": {
+          "lag_samples": 48.88402167459383,
+          "corr": 0.5702482086928403,
+          "abs_corr": 0.5702482086928403,
+          "polarity": 1,
+          "lag_us": 1909.5320966620848,
+          "reference": "cDAQ9185-254D6AAMod1/ai0",
+          "target": "cDAQ9185-254D6AAMod1/ai1",
+          "definition": "positive lag means target channel is delayed relative to reference channel"
+        },
+        "cDAQ9185-254D6AAMod1/ai2 minus cDAQ9185-254D6AAMod1/ai0": {
+          "lag_samples": -35.675076668413624,
+          "corr": -0.7928722446595048,
+          "abs_corr": 0.7928722446595048,
+          "polarity": -1,
+          "lag_us": -1393.5576823586398,
+          "reference": "cDAQ9185-254D6AAMod1/ai0",
+          "target": "cDAQ9185-254D6AAMod1/ai2",
+          "definition": "positive lag means target channel is delayed relative to reference channel"
+        },
+        "cDAQ9185-254D6AAMod1/ai2 minus cDAQ9185-254D6AAMod1/ai1": {
+          "lag_samples": 22.301657233517787,
+          "corr": 0.5529056677797183,
+          "abs_corr": 0.5529056677797183,
+          "polarity": 1,
+          "lag_us": 871.1584856834962,
+          "reference": "cDAQ9185-254D6AAMod1/ai1",
+          "target": "cDAQ9185-254D6AAMod1/ai2",
+          "definition": "positive lag means target channel is delayed relative to reference channel"
+        }
+      }
+    },
+    {
+      "event": 4,
+      "peak_sample_index": 44843,
+      "peak_time_s": 1.7516796875,
+      "window_start_s": 1.743671875,
+      "window_stop_s": 1.7836328125,
+      "peak_values_g": {
+        "cDAQ9185-254D6AAMod1/ai0": -1.3076868668900001,
+        "cDAQ9185-254D6AAMod1/ai1": 0.15586856408,
+        "cDAQ9185-254D6AAMod1/ai2": -1.3077803296
+      },
+      "pair_results": {
+        "cDAQ9185-254D6AAMod1/ai1 minus cDAQ9185-254D6AAMod1/ai0": {
+          "lag_samples": 48.93095466958256,
+          "corr": 0.5700833141549777,
+          "abs_corr": 0.5700833141549777,
+          "polarity": 1,
+          "lag_us": 1911.3654167788304,
+          "reference": "cDAQ9185-254D6AAMod1/ai0",
+          "target": "cDAQ9185-254D6AAMod1/ai1",
+          "definition": "positive lag means target channel is delayed relative to reference channel"
+        },
+        "cDAQ9185-254D6AAMod1/ai2 minus cDAQ9185-254D6AAMod1/ai0": {
+          "lag_samples": -35.63197319761168,
+          "corr": -0.800715950685102,
+          "abs_corr": 0.800715950685102,
+          "polarity": -1,
+          "lag_us": -1391.8739530304404,
+          "reference": "cDAQ9185-254D6AAMod1/ai0",
+          "target": "cDAQ9185-254D6AAMod1/ai2",
+          "definition": "positive lag means target channel is delayed relative to reference channel"
+        },
+        "cDAQ9185-254D6AAMod1/ai2 minus cDAQ9185-254D6AAMod1/ai1": {
+          "lag_samples": 22.33065199147707,
+          "corr": 0.5603788791302247,
+          "abs_corr": 0.5603788791302247,
+          "polarity": 1,
+          "lag_us": 872.2910934162796,
+          "reference": "cDAQ9185-254D6AAMod1/ai1",
+          "target": "cDAQ9185-254D6AAMod1/ai2",
+          "definition": "positive lag means target channel is delayed relative to reference channel"
+        }
+      }
+    },
+    {
+      "event": 5,
+      "peak_sample_index": 54883,
+      "peak_time_s": 2.1438671875,
+      "window_start_s": 2.135859375,
+      "window_stop_s": 2.1758203125,
+      "peak_values_g": {
+        "cDAQ9185-254D6AAMod1/ai0": -0.7585288557800001,
+        "cDAQ9185-254D6AAMod1/ai1": 0.046481937279999996,
+        "cDAQ9185-254D6AAMod1/ai2": -0.7832743069600001
+      },
+      "pair_results": {
+        "cDAQ9185-254D6AAMod1/ai1 minus cDAQ9185-254D6AAMod1/ai0": {
+          "lag_samples": 38.03304540099112,
+          "corr": -0.5488860132942895,
+          "abs_corr": 0.5488860132942895,
+          "polarity": -1,
+          "lag_us": 1485.6658359748644,
+          "reference": "cDAQ9185-254D6AAMod1/ai0",
+          "target": "cDAQ9185-254D6AAMod1/ai1",
+          "definition": "positive lag means target channel is delayed relative to reference channel"
+        },
+        "cDAQ9185-254D6AAMod1/ai2 minus cDAQ9185-254D6AAMod1/ai0": {
+          "lag_samples": -35.6513983763426,
+          "corr": -0.7913262440950124,
+          "abs_corr": 0.7913262440950124,
+          "polarity": -1,
+          "lag_us": -1392.6327490746162,
+          "reference": "cDAQ9185-254D6AAMod1/ai0",
+          "target": "cDAQ9185-254D6AAMod1/ai2",
+          "definition": "positive lag means target channel is delayed relative to reference channel"
+        },
+        "cDAQ9185-254D6AAMod1/ai2 minus cDAQ9185-254D6AAMod1/ai1": {
+          "lag_samples": 22.38117136639898,
+          "corr": 0.5370099841282521,
+          "abs_corr": 0.5370099841282521,
+          "polarity": 1,
+          "lag_us": 874.264506499165,
+          "reference": "cDAQ9185-254D6AAMod1/ai1",
+          "target": "cDAQ9185-254D6AAMod1/ai2",
+          "definition": "positive lag means target channel is delayed relative to reference channel"
+        }
+      }
+    },
+    {
+      "event": 6,
+      "peak_sample_index": 71633,
+      "peak_time_s": 2.7981640625,
+      "window_start_s": 2.79015625,
+      "window_stop_s": 2.8301171875,
+      "peak_values_g": {
+        "cDAQ9185-254D6AAMod1/ai0": -1.3164357152300001,
+        "cDAQ9185-254D6AAMod1/ai1": 0.1872691758,
+        "cDAQ9185-254D6AAMod1/ai2": -1.16165151352
+      },
+      "pair_results": {
+        "cDAQ9185-254D6AAMod1/ai1 minus cDAQ9185-254D6AAMod1/ai0": {
+          "lag_samples": 38.2510586197119,
+          "corr": -0.5435631573904826,
+          "abs_corr": 0.5435631573904826,
+          "polarity": -1,
+          "lag_us": 1494.181977331137,
+          "reference": "cDAQ9185-254D6AAMod1/ai0",
+          "target": "cDAQ9185-254D6AAMod1/ai1",
+          "definition": "positive lag means target channel is delayed relative to reference channel"
+        },
+        "cDAQ9185-254D6AAMod1/ai2 minus cDAQ9185-254D6AAMod1/ai0": {
+          "lag_samples": -35.61609305351109,
+          "corr": -0.803797636350327,
+          "abs_corr": 0.803797636350327,
+          "polarity": -1,
+          "lag_us": -1391.2536349015115,
+          "reference": "cDAQ9185-254D6AAMod1/ai0",
+          "target": "cDAQ9185-254D6AAMod1/ai2",
+          "definition": "positive lag means target channel is delayed relative to reference channel"
+        },
+        "cDAQ9185-254D6AAMod1/ai2 minus cDAQ9185-254D6AAMod1/ai1": {
+          "lag_samples": 22.457929730252392,
+          "corr": 0.5338730734968562,
+          "abs_corr": 0.5338730734968562,
+          "polarity": 1,
+          "lag_us": 877.2628800871862,
+          "reference": "cDAQ9185-254D6AAMod1/ai1",
+          "target": "cDAQ9185-254D6AAMod1/ai2",
+          "definition": "positive lag means target channel is delayed relative to reference channel"
+        }
+      }
+    },
+    {
+      "event": 7,
+      "peak_sample_index": 83327,
+      "peak_time_s": 3.2549609375,
+      "window_start_s": 3.246953125,
+      "window_stop_s": 3.2869140625,
+      "peak_values_g": {
+        "cDAQ9185-254D6AAMod1/ai0": -1.2132432320900002,
+        "cDAQ9185-254D6AAMod1/ai1": 0.2660299874,
+        "cDAQ9185-254D6AAMod1/ai2": -1.173416716
+      },
+      "pair_results": {
+        "cDAQ9185-254D6AAMod1/ai1 minus cDAQ9185-254D6AAMod1/ai0": {
+          "lag_samples": 38.09178762479672,
+          "corr": -0.5441992196844486,
+          "abs_corr": 0.5441992196844486,
+          "polarity": -1,
+          "lag_us": 1487.9604540922687,
+          "reference": "cDAQ9185-254D6AAMod1/ai0",
+          "target": "cDAQ9185-254D6AAMod1/ai1",
+          "definition": "positive lag means target channel is delayed relative to reference channel"
+        },
+        "cDAQ9185-254D6AAMod1/ai2 minus cDAQ9185-254D6AAMod1/ai0": {
+          "lag_samples": -35.66968133557648,
+          "corr": -0.788624689562094,
+          "abs_corr": 0.788624689562094,
+          "polarity": -1,
+          "lag_us": -1393.3469271696888,
+          "reference": "cDAQ9185-254D6AAMod1/ai0",
+          "target": "cDAQ9185-254D6AAMod1/ai2",
+          "definition": "positive lag means target channel is delayed relative to reference channel"
+        },
+        "cDAQ9185-254D6AAMod1/ai2 minus cDAQ9185-254D6AAMod1/ai1": {
+          "lag_samples": 22.415974019124544,
+          "corr": 0.5225039792757328,
+          "abs_corr": 0.5225039792757328,
+          "polarity": 1,
+          "lag_us": 875.6239851212562,
+          "reference": "cDAQ9185-254D6AAMod1/ai1",
+          "target": "cDAQ9185-254D6AAMod1/ai2",
+          "definition": "positive lag means target channel is delayed relative to reference channel"
+        }
+      }
+    },
+    {
+      "event": 8,
+      "peak_sample_index": 111344,
+      "peak_time_s": 4.349375,
+      "window_start_s": 4.3413671875,
+      "window_stop_s": 4.381328125,
+      "peak_values_g": {
+        "cDAQ9185-254D6AAMod1/ai0": -1.47465320756,
+        "cDAQ9185-254D6AAMod1/ai1": 0.17240772444,
+        "cDAQ9185-254D6AAMod1/ai2": -1.2443006886399999
+      },
+      "pair_results": {
+        "cDAQ9185-254D6AAMod1/ai1 minus cDAQ9185-254D6AAMod1/ai0": {
+          "lag_samples": 49.51750820151537,
+          "corr": 0.5493255648122505,
+          "abs_corr": 0.5493255648122505,
+          "polarity": 1,
+          "lag_us": 1934.2776641199348,
+          "reference": "cDAQ9185-254D6AAMod1/ai0",
+          "target": "cDAQ9185-254D6AAMod1/ai1",
+          "definition": "positive lag means target channel is delayed relative to reference channel"
+        },
+        "cDAQ9185-254D6AAMod1/ai2 minus cDAQ9185-254D6AAMod1/ai0": {
+          "lag_samples": -0.2701648455935856,
+          "corr": 0.826141610681141,
+          "abs_corr": 0.826141610681141,
+          "polarity": 1,
+          "lag_us": -10.55331428098984,
+          "reference": "cDAQ9185-254D6AAMod1/ai0",
+          "target": "cDAQ9185-254D6AAMod1/ai2",
+          "definition": "positive lag means target channel is delayed relative to reference channel"
+        },
+        "cDAQ9185-254D6AAMod1/ai2 minus cDAQ9185-254D6AAMod1/ai1": {
+          "lag_samples": 22.38790255515671,
+          "corr": 0.5445974414824447,
+          "abs_corr": 0.5445974414824447,
+          "polarity": 1,
+          "lag_us": 874.5274435600136,
+          "reference": "cDAQ9185-254D6AAMod1/ai1",
+          "target": "cDAQ9185-254D6AAMod1/ai2",
+          "definition": "positive lag means target channel is delayed relative to reference channel"
+        }
+      }
+    },
+    {
+      "event": 9,
+      "peak_sample_index": 127194,
+      "peak_time_s": 4.968515625,
+      "window_start_s": 4.9605078125,
+      "window_stop_s": 5.00046875,
+      "peak_values_g": {
+        "cDAQ9185-254D6AAMod1/ai0": -1.6654317902600002,
+        "cDAQ9185-254D6AAMod1/ai1": 0.14469197175999998,
+        "cDAQ9185-254D6AAMod1/ai2": -1.40659827184
+      },
+      "pair_results": {
+        "cDAQ9185-254D6AAMod1/ai1 minus cDAQ9185-254D6AAMod1/ai0": {
+          "lag_samples": 38.65933125003968,
+          "corr": -0.5286457969382626,
+          "abs_corr": 0.5286457969382626,
+          "polarity": -1,
+          "lag_us": 1510.1301269533014,
+          "reference": "cDAQ9185-254D6AAMod1/ai0",
+          "target": "cDAQ9185-254D6AAMod1/ai1",
+          "definition": "positive lag means target channel is delayed relative to reference channel"
+        },
+        "cDAQ9185-254D6AAMod1/ai2 minus cDAQ9185-254D6AAMod1/ai0": {
+          "lag_samples": -35.584132347676665,
+          "corr": -0.8015225000167027,
+          "abs_corr": 0.8015225000167027,
+          "polarity": -1,
+          "lag_us": -1390.0051698298555,
+          "reference": "cDAQ9185-254D6AAMod1/ai0",
+          "target": "cDAQ9185-254D6AAMod1/ai2",
+          "definition": "positive lag means target channel is delayed relative to reference channel"
+        },
+        "cDAQ9185-254D6AAMod1/ai2 minus cDAQ9185-254D6AAMod1/ai1": {
+          "lag_samples": 22.48714657838359,
+          "corr": 0.4986659433309271,
+          "abs_corr": 0.4986659433309271,
+          "polarity": 1,
+          "lag_us": 878.4041632173102,
+          "reference": "cDAQ9185-254D6AAMod1/ai1",
+          "target": "cDAQ9185-254D6AAMod1/ai2",
+          "definition": "positive lag means target channel is delayed relative to reference channel"
+        }
+      }
+    },
+    {
+      "event": 10,
+      "peak_sample_index": 137825,
+      "peak_time_s": 5.3837890625,
+      "window_start_s": 5.37578125,
+      "window_stop_s": 5.4157421875,
+      "peak_values_g": {
+        "cDAQ9185-254D6AAMod1/ai0": -1.25149656479,
+        "cDAQ9185-254D6AAMod1/ai1": 0.23537976916,
+        "cDAQ9185-254D6AAMod1/ai2": -0.8427346278400001
+      },
+      "pair_results": {
+        "cDAQ9185-254D6AAMod1/ai1 minus cDAQ9185-254D6AAMod1/ai0": {
+          "lag_samples": 38.49264434606889,
+          "corr": -0.5255833103031994,
+          "abs_corr": 0.5255833103031994,
+          "polarity": -1,
+          "lag_us": 1503.6189197669487,
+          "reference": "cDAQ9185-254D6AAMod1/ai0",
+          "target": "cDAQ9185-254D6AAMod1/ai1",
+          "definition": "positive lag means target channel is delayed relative to reference channel"
+        },
+        "cDAQ9185-254D6AAMod1/ai2 minus cDAQ9185-254D6AAMod1/ai0": {
+          "lag_samples": -35.621422663908454,
+          "corr": -0.7986240738336328,
+          "abs_corr": 0.7986240738336328,
+          "polarity": -1,
+          "lag_us": -1391.4618228076586,
+          "reference": "cDAQ9185-254D6AAMod1/ai0",
+          "target": "cDAQ9185-254D6AAMod1/ai2",
+          "definition": "positive lag means target channel is delayed relative to reference channel"
+        },
+        "cDAQ9185-254D6AAMod1/ai2 minus cDAQ9185-254D6AAMod1/ai1": {
+          "lag_samples": 22.54426720835981,
+          "corr": 0.4998507917104157,
+          "abs_corr": 0.4998507917104157,
+          "polarity": 1,
+          "lag_us": 880.6354378257541,
+          "reference": "cDAQ9185-254D6AAMod1/ai1",
+          "target": "cDAQ9185-254D6AAMod1/ai2",
+          "definition": "positive lag means target channel is delayed relative to reference channel"
+        }
+      }
+    },
+    {
+      "event": 11,
+      "peak_sample_index": 148739,
+      "peak_time_s": 5.8101171875,
+      "window_start_s": 5.802109375,
+      "window_stop_s": 5.8420703125,
+      "peak_values_g": {
+        "cDAQ9185-254D6AAMod1/ai0": -2.54151852323,
+        "cDAQ9185-254D6AAMod1/ai1": 0.28764498008,
+        "cDAQ9185-254D6AAMod1/ai2": -2.1077897017600002
+      },
+      "pair_results": {
+        "cDAQ9185-254D6AAMod1/ai1 minus cDAQ9185-254D6AAMod1/ai0": {
+          "lag_samples": 38.663550961121686,
+          "corr": -0.5374514062144236,
+          "abs_corr": 0.5374514062144236,
+          "polarity": -1,
+          "lag_us": 1510.2949594174422,
+          "reference": "cDAQ9185-254D6AAMod1/ai0",
+          "target": "cDAQ9185-254D6AAMod1/ai1",
+          "definition": "positive lag means target channel is delayed relative to reference channel"
+        },
+        "cDAQ9185-254D6AAMod1/ai2 minus cDAQ9185-254D6AAMod1/ai0": {
+          "lag_samples": -35.621276087432,
+          "corr": -0.8054913111004837,
+          "abs_corr": 0.8054913111004837,
+          "polarity": -1,
+          "lag_us": -1391.456097164047,
+          "reference": "cDAQ9185-254D6AAMod1/ai0",
+          "target": "cDAQ9185-254D6AAMod1/ai2",
+          "definition": "positive lag means target channel is delayed relative to reference channel"
+        },
+        "cDAQ9185-254D6AAMod1/ai2 minus cDAQ9185-254D6AAMod1/ai1": {
+          "lag_samples": 22.45734997957342,
+          "corr": 0.5030365762281562,
+          "abs_corr": 0.5030365762281562,
+          "polarity": 1,
+          "lag_us": 877.2402335762888,
+          "reference": "cDAQ9185-254D6AAMod1/ai1",
+          "target": "cDAQ9185-254D6AAMod1/ai2",
+          "definition": "positive lag means target channel is delayed relative to reference channel"
+        }
+      }
+    }
+  ],
+  "pair_summary": {
+    "cDAQ9185-254D6AAMod1/ai1 minus cDAQ9185-254D6AAMod1/ai0": {
+      "reference": "cDAQ9185-254D6AAMod1/ai0",
+      "target": "cDAQ9185-254D6AAMod1/ai1",
+      "event_count": 11,
+      "mean_lag_us": 1686.527917200927,
+      "median_lag_us": 1510.2949594174422,
+      "std_lag_us": 216.16648154430158,
+      "min_lag_us": 1485.6658359748644,
+      "max_lag_us": 1934.2776641199348,
+      "max_abs_lag_us": 1934.2776641199348,
+      "p95_abs_lag_us": 1922.8215404493826,
+      "mean_abs_corr": 0.5559699616128863,
+      "min_abs_corr": 0.5255833103031994,
+      "sample_lags": [
+        48.61523254828301,
+        48.78712618750819,
+        48.88402167459383,
+        48.93095466958256,
+        38.03304540099112,
+        38.2510586197119,
+        38.09178762479672,
+        49.51750820151537,
+        38.65933125003968,
+        38.49264434606889,
+        38.663550961121686
+      ],
+      "lags_us": [
+        1899.032521415578,
+        1905.7471166978055,
+        1909.5320966620848,
+        1911.3654167788304,
+        1485.6658359748644,
+        1494.181977331137,
+        1487.9604540922687,
+        1934.2776641199348,
+        1510.1301269533014,
+        1503.6189197669487,
+        1510.2949594174422
+      ],
+      "abs_corr": [
+        0.6166598954732924,
+        0.5810236907832808,
+        0.5702482086928403,
+        0.5700833141549777,
+        0.5488860132942895,
+        0.5435631573904826,
+        0.5441992196844486,
+        0.5493255648122505,
+        0.5286457969382626,
+        0.5255833103031994,
+        0.5374514062144236
+      ]
+    },
+    "cDAQ9185-254D6AAMod1/ai2 minus cDAQ9185-254D6AAMod1/ai0": {
+      "reference": "cDAQ9185-254D6AAMod1/ai0",
+      "target": "cDAQ9185-254D6AAMod1/ai2",
+      "event_count": 11,
+      "mean_lag_us": -1266.330864599406,
+      "median_lag_us": -1391.4618228076586,
+      "std_lag_us": 416.49558209237824,
+      "min_lag_us": -1393.5576823586398,
+      "max_lag_us": -10.55331428098984,
+      "max_abs_lag_us": 1393.5576823586398,
+      "p95_abs_lag_us": 1393.4523047641642,
+      "mean_abs_corr": 0.8005928451236776,
+      "min_abs_corr": 0.788624689562094,
+      "sample_lags": [
+        -35.611637682738895,
+        -35.64591521271194,
+        -35.675076668413624,
+        -35.63197319761168,
+        -35.6513983763426,
+        -35.61609305351109,
+        -35.66968133557648,
+        -0.2701648455935856,
+        -35.584132347676665,
+        -35.621422663908454,
+        -35.621276087432
+      ],
+      "lags_us": [
+        -1391.079596980723,
+        -1392.4185629952938,
+        -1393.5576823586398,
+        -1391.8739530304404,
+        -1392.6327490746162,
+        -1391.2536349015115,
+        -1393.3469271696888,
+        -10.55331428098984,
+        -1390.0051698298555,
+        -1391.4618228076586,
+        -1391.456097164047
+      ],
+      "abs_corr": [
+        0.8024394079395935,
+        0.7949656274368588,
+        0.7928722446595048,
+        0.800715950685102,
+        0.7913262440950124,
+        0.803797636350327,
+        0.788624689562094,
+        0.826141610681141,
+        0.8015225000167027,
+        0.7986240738336328,
+        0.8054913111004837
+      ]
+    },
+    "cDAQ9185-254D6AAMod1/ai2 minus cDAQ9185-254D6AAMod1/ai1": {
+      "reference": "cDAQ9185-254D6AAMod1/ai1",
+      "target": "cDAQ9185-254D6AAMod1/ai2",
+      "event_count": 11,
+      "mean_lag_us": 874.9040929465439,
+      "median_lag_us": 874.5274435600136,
+      "std_lag_us": 3.2329499942921887,
+      "min_lag_us": 871.1336266080345,
+      "max_lag_us": 880.6354378257541,
+      "max_abs_lag_us": 880.6354378257541,
+      "p95_abs_lag_us": 879.5198005215321,
+      "mean_abs_corr": 0.5370772219623221,
+      "min_abs_corr": 0.4986659433309271,
+      "sample_lags": [
+        22.307921070540555,
+        22.301020841185967,
+        22.301657233517787,
+        22.33065199147707,
+        22.38117136639898,
+        22.457929730252392,
+        22.415974019124544,
+        22.38790255515671,
+        22.48714657838359,
+        22.54426720835981,
+        22.45734997957342
+      ],
+      "lags_us": [
+        871.4031668171979,
+        871.1336266080345,
+        871.1584856834962,
+        872.2910934162796,
+        874.264506499165,
+        877.2628800871862,
+        875.6239851212562,
+        874.5274435600136,
+        878.4041632173102,
+        880.6354378257541,
+        877.2402335762888
+      ],
+      "abs_corr": [
+        0.5919061840281671,
+        0.5631209209946473,
+        0.5529056677797183,
+        0.5603788791302247,
+        0.5370099841282521,
+        0.5338730734968562,
+        0.5225039792757328,
+        0.5445974414824447,
+        0.4986659433309271,
+        0.4998507917104157,
+        0.5030365762281562
+      ]
+    }
+  },
+  "quality_events": [
+    {
+      "event": 1,
+      "min_abs_corr": 0.5919061840281671,
+      "max_abs_delay_us": 1899.032521415578
+    },
+    {
+      "event": 2,
+      "min_abs_corr": 0.5631209209946473,
+      "max_abs_delay_us": 1905.7471166978055
+    },
+    {
+      "event": 3,
+      "min_abs_corr": 0.5529056677797183,
+      "max_abs_delay_us": 1909.5320966620848
+    },
+    {
+      "event": 4,
+      "min_abs_corr": 0.5603788791302247,
+      "max_abs_delay_us": 1911.3654167788304
+    },
+    {
+      "event": 5,
+      "min_abs_corr": 0.5370099841282521,
+      "max_abs_delay_us": 1485.6658359748644
+    },
+    {
+      "event": 6,
+      "min_abs_corr": 0.5338730734968562,
+      "max_abs_delay_us": 1494.181977331137
+    },
+    {
+      "event": 7,
+      "min_abs_corr": 0.5225039792757328,
+      "max_abs_delay_us": 1487.9604540922687
+    },
+    {
+      "event": 8,
+      "min_abs_corr": 0.5445974414824447,
+      "max_abs_delay_us": 1934.2776641199348
+    },
+    {
+      "event": 9,
+      "min_abs_corr": 0.4986659433309271,
+      "max_abs_delay_us": 1510.1301269533014
+    },
+    {
+      "event": 10,
+      "min_abs_corr": 0.4998507917104157,
+      "max_abs_delay_us": 1503.6189197669487
+    },
+    {
+      "event": 11,
+      "min_abs_corr": 0.5030365762281562,
+      "max_abs_delay_us": 1510.2949594174422
+    }
+  ]
+}

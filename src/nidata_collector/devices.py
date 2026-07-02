@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from collections.abc import Iterable
 from typing import Any
 
 
@@ -53,6 +54,36 @@ def reserve_network_devices(override: bool = False) -> list[ReservationResult]:
 
         try:
             device.reserve_network_device(override)
+            results.append(ReservationResult(device=device.name, ok=True))
+        except Exception as exc:
+            results.append(
+                ReservationResult(device=device.name, ok=False, message=f"{type(exc).__name__}: {exc}")
+            )
+
+    return results
+
+
+def unreserve_network_devices(device_names: Iterable[str] | None = None) -> list[ReservationResult]:
+    import nidaqmx.system
+    from nidaqmx.constants import BusType
+
+    requested = set(device_names or [])
+    results: list[ReservationResult] = []
+    system = nidaqmx.system.System.local()
+    for device in list(system.devices):
+        if requested and device.name not in requested:
+            continue
+
+        try:
+            is_tcpip = device.bus_type == BusType.TCPIP
+        except Exception:
+            is_tcpip = False
+
+        if not is_tcpip:
+            continue
+
+        try:
+            device.unreserve_network_device()
             results.append(ReservationResult(device=device.name, ok=True))
         except Exception as exc:
             results.append(

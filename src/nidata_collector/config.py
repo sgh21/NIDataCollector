@@ -27,6 +27,14 @@ class SignalType(str, Enum):
 
 
 @dataclass(frozen=True)
+class SensorMetadata:
+    sensor_id: str = ""
+    measurement_position: str = ""
+    direction: str = ""
+    mounting_method: str = ""
+
+
+@dataclass(frozen=True)
 class ChannelSelection:
     physical_name: str
     device_name: str
@@ -34,6 +42,7 @@ class ChannelSelection:
     signal_type: SignalType
     visualize: bool = False
     save: bool = False
+    sensor: SensorMetadata = field(default_factory=SensorMetadata)
 
 
 @dataclass(frozen=True)
@@ -81,10 +90,78 @@ class AcquisitionGroup:
 
 
 @dataclass(frozen=True)
+class SpindleInfo:
+    spindle_id: str = ""
+    model: str = ""
+    rated_speed_rpm: float | None = None
+    max_speed_rpm: float | None = None
+    test_date: str = ""
+    accumulated_runtime_hours: float | None = None
+
+
+@dataclass(frozen=True)
+class OperatingCondition:
+    target_speed_rpm: float | None = None
+    actual_speed_rpm: float | None = None
+    ramp_method: str = ""
+    run_duration_s: float | None = None
+    preheated: bool = False
+    thermal_state: str = ""
+
+
+@dataclass(frozen=True)
+class TemperatureRecord:
+    front_bearing_deg_c: float | None = None
+    rear_bearing_deg_c: float | None = None
+    motor_housing_deg_c: float | None = None
+    ambient_deg_c: float | None = None
+
+
+@dataclass(frozen=True)
+class SpeedRecord:
+    set_speed_rpm: float | None = None
+    actual_speed_rpm: float | None = None
+    fluctuation_rpm: str = ""
+    has_phase_signal: bool = False
+
+
+@dataclass(frozen=True)
+class ExceptionRecord:
+    abnormal_noise: bool = False
+    over_temperature: bool = False
+    alarm: bool = False
+    cable_loose: bool = False
+    acquisition_interrupted: bool = False
+    misoperation: bool = False
+    note: str = ""
+
+
+@dataclass(frozen=True)
+class FollowupLabel:
+    rotation_accuracy_measured: bool = False
+    rotation_accuracy_value: str = ""
+    measurement_position: str = ""
+    measurement_condition: str = ""
+    label: str = ""
+
+
+@dataclass(frozen=True)
+class ExperimentRecord:
+    spindle: SpindleInfo = field(default_factory=SpindleInfo)
+    condition: OperatingCondition = field(default_factory=OperatingCondition)
+    temperature: TemperatureRecord = field(default_factory=TemperatureRecord)
+    speed: SpeedRecord = field(default_factory=SpeedRecord)
+    exception: ExceptionRecord = field(default_factory=ExceptionRecord)
+    followup: FollowupLabel = field(default_factory=FollowupLabel)
+
+
+@dataclass(frozen=True)
 class RunConfiguration:
     output_dir: Path
     groups: list[AcquisitionGroup] = field(default_factory=list)
     operator_note: str = ""
+    experiment_record: ExperimentRecord = field(default_factory=ExperimentRecord)
+    override_network_reservation: bool = False
 
     @property
     def has_saves(self) -> bool:

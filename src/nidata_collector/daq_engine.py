@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import queue
 import threading
+import time
 import traceback
 from dataclasses import dataclass
 from pathlib import Path
@@ -16,7 +17,7 @@ from .config import (
     SignalType,
     TemperatureRtdSettings,
 )
-from .devices import get_system_snapshot, reserve_network_devices
+from .devices import get_system_snapshot, reserve_network_devices, unreserve_network_devices
 from .storage import RunStorage, SegmentWriter
 
 
@@ -35,6 +36,32 @@ class SegmentWriteJob:
     time_s: np.ndarray
     data: np.ndarray
     partial: bool = False
+
+
+class RecordingControl:
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._storage: RunStorage | None = None
+        self._generation = 0
+        self._started_at_monotonic: float | None = None
+
+    def start(self, storage: RunStorage) -> int:
+        with self._lock:
+            if self._storage is not None:
+                raise RuntimeError("Recording has already been triggered.")
+            self._storage = storage
+            self._generation += 1
+            self._started_at_monotonic = time.monotonic()
+            return self._generation
+
+    def snapshot(self) -> tuple[RunStorage | None, int, float | None]:
+        with self._lock:
+            return self._storage, self._generation, self._started_at_monotonic
+
+    @property
+    def recording(self) -> bool:
+        with self._lock:
+            return self._storage is not None
 
 
 class AsyncSegmentWriter:
@@ -123,36 +150,80 @@ class AcquisitionController:
     def __init__(self) -> None:
         self.events: queue.Queue[AcquisitionEvent] = queue.Queue()
         self._threads: list[threading.Thread] = []
+        self._workers: list[AcquisitionWorker] = []
         self._stop_event = threading.Event()
         self._running = False
+        self._reserved_devices: set[str] = set()
+        self._config: RunConfiguration | None = None
+        self._device_snapshot: dict[str, Any] | None = None
+        self._recording_control = RecordingControl()
 
     @property
     def running(self) -> bool:
         return self._running
 
-    def start(self, config: RunConfiguration) -> Path:
+    @property
+    def recording(self) -> bool:
+        return self._recording_control.recording
+
+    def start(self, config: RunConfiguration) -> None:
         if self._running:
             raise RuntimeError("Acquisition is already running.")
         if not config.groups:
             raise ValueError("Select at least one channel to visualize or save.")
 
         self._stop_event.clear()
-        for result in reserve_network_devices(override=False):
+        self._recording_control = RecordingControl()
+        self._config = config
+        reservations = reserve_network_devices(override=config.override_network_reservation)
+        failures = [result for result in reservations if not result.ok]
+        for result in reservations:
             status = "reserved" if result.ok else "reservation failed"
             self.events.put(AcquisitionEvent("status", message=f"{result.device}: {status} {result.message}"))
+            if result.ok:
+                self._reserved_devices.add(result.device)
+        if failures:
+            details = "\n".join(f"{item.device}: {item.message}" for item in failures)
+            self.release_reserved_devices()
+            raise RuntimeError(f"Failed to reserve NI network device(s):\n{details}")
 
-        snapshot = get_system_snapshot()
-        storage = RunStorage(config, snapshot)
+        self._device_snapshot = get_system_snapshot()
 
         self._threads = []
+        self._workers = []
         for group in config.groups:
-            worker = AcquisitionWorker(group, storage, self.events, self._stop_event)
+            worker = AcquisitionWorker(group, self._recording_control, self.events, self._stop_event)
+            self._workers.append(worker)
             thread = threading.Thread(target=worker.run, name=f"daq-{group.signal_type.value}", daemon=True)
             self._threads.append(thread)
             thread.start()
 
         self._running = True
-        self.events.put(AcquisitionEvent("started", message=f"Run folder: {storage.run_dir}"))
+        self.events.put(
+            AcquisitionEvent(
+                "started",
+                message="Monitoring started. Press Trigger to record saved channels.",
+            )
+        )
+
+    def trigger_recording(self) -> Path:
+        if not self._running:
+            raise RuntimeError("Start monitoring before triggering a recording.")
+        if self._config is None or self._device_snapshot is None:
+            raise RuntimeError("Monitoring configuration is not available.")
+        if not self._config.has_saves:
+            raise ValueError("Select at least one Save channel before triggering a recording.")
+        if self._recording_control.recording:
+            raise RuntimeError("Recording has already been triggered.")
+        storage = RunStorage(self._config, self._device_snapshot)
+        self._recording_control.start(storage)
+        self.events.put(
+            AcquisitionEvent(
+                "recording_started",
+                message=f"Recording triggered: {storage.run_dir}",
+                payload={"run_dir": str(storage.run_dir)},
+            )
+        )
         return storage.run_dir
 
     def stop(self) -> None:
@@ -165,20 +236,41 @@ class AcquisitionController:
         if not alive:
             self._running = False
             self.events.put(AcquisitionEvent("stopped", message="Acquisition stopped."))
+            self._workers = []
+            self._config = None
+            self._device_snapshot = None
             return True
         return False
+
+    def shutdown(self, join_timeout_s: float = 5.0) -> None:
+        self.stop()
+        for thread in self._threads:
+            thread.join(timeout=join_timeout_s)
+        self._running = any(thread.is_alive() for thread in self._threads)
+        if not self._running:
+            self.release_reserved_devices()
+
+    def release_reserved_devices(self) -> None:
+        if not self._reserved_devices:
+            return
+        results = unreserve_network_devices(self._reserved_devices)
+        for result in results:
+            status = "released" if result.ok else "release failed"
+            self.events.put(AcquisitionEvent("status", message=f"{result.device}: {status} {result.message}"))
+            if result.ok:
+                self._reserved_devices.discard(result.device)
 
 
 class AcquisitionWorker:
     def __init__(
         self,
         group: AcquisitionGroup,
-        storage: RunStorage,
+        recording_control: RecordingControl,
         events: queue.Queue[AcquisitionEvent],
         stop_event: threading.Event,
     ) -> None:
         self.group = group
-        self.storage = storage
+        self.recording_control = recording_control
         self.events = events
         self.stop_event = stop_event
 
@@ -206,13 +298,8 @@ class AcquisitionWorker:
         if not channels:
             return
 
-        writer = (
-            AsyncSegmentWriter(SegmentWriter(self.storage, self.group), self.events, self.group)
-            if self.group.save_channels
-            else None
-        )
-        if writer is not None:
-            writer.start()
+        writer: AsyncSegmentWriter | None = None
+        local_recording_generation = 0
         samples_per_segment = max(1, int(settings.segment_samples))
         chunk_samples = choose_chunk_size(settings.sample_rate_hz, samples_per_segment)
         data_buffer = np.empty((len(channels), chunk_samples), dtype=np.float64)
@@ -243,8 +330,17 @@ class AcquisitionWorker:
                 segment_start = 0
                 segment = np.empty((len(channels), samples_per_segment), dtype=np.float64)
                 segment_fill = 0
+                next_record_sample = 0
 
                 while not self.stop_event.is_set():
+                    storage, generation, _started_at = self.recording_control.snapshot()
+                    if generation != local_recording_generation:
+                        writer = self._start_writer(storage)
+                        local_recording_generation = generation
+                        segment_fill = 0
+                        segment_start = 0
+                        next_record_sample = 0
+
                     n_read = reader.read_many_sample(
                         data_buffer,
                         number_of_samples_per_channel=chunk_samples,
@@ -257,14 +353,17 @@ class AcquisitionWorker:
                     time_s = (np.arange(n_read, dtype=np.float64) + sample_cursor) / settings.sample_rate_hz
                     self._emit_plot(sample_cursor, time_s, chunk)
 
-                    offset = 0
-                    while offset < n_read:
-                        take = min(samples_per_segment - segment_fill, n_read - offset)
-                        segment[:, segment_fill : segment_fill + take] = chunk[:, offset : offset + take]
-                        segment_fill += take
-                        offset += take
-                        if segment_fill == samples_per_segment:
-                            if writer is not None:
+                    if writer is not None:
+                        offset = 0
+                        while offset < n_read:
+                            if segment_fill == 0:
+                                segment_start = next_record_sample
+                            take = min(samples_per_segment - segment_fill, n_read - offset)
+                            segment[:, segment_fill : segment_fill + take] = chunk[:, offset : offset + take]
+                            segment_fill += take
+                            offset += take
+                            next_record_sample += take
+                            if segment_fill == samples_per_segment:
                                 segment_time = (
                                     np.arange(samples_per_segment, dtype=np.float64) + segment_start
                                 ) / settings.sample_rate_hz
@@ -274,8 +373,7 @@ class AcquisitionWorker:
                                     segment_time,
                                     segment,
                                 )
-                            segment_start += samples_per_segment
-                            segment_fill = 0
+                                segment_fill = 0
 
                     sample_cursor += n_read
 
@@ -301,6 +399,20 @@ class AcquisitionWorker:
                     )
                 )
                 writer.close()
+
+    def _start_writer(self, storage: RunStorage | None) -> AsyncSegmentWriter | None:
+        if storage is None or not self.group.save_channels:
+            return None
+        writer = AsyncSegmentWriter(SegmentWriter(storage, self.group), self.events, self.group)
+        writer.start()
+        self.events.put(
+            AcquisitionEvent(
+                "status",
+                group=self.group.signal_type.value,
+                message=f"{self.group.signal_type.label} recording enabled: {len(self.group.save_channels)} channel(s)",
+            )
+        )
+        return writer
 
     def _discard_settle_samples(self, reader: Any, data_buffer: np.ndarray) -> None:
         settings = self.group.settings
@@ -344,7 +456,7 @@ class AcquisitionWorker:
 
 
 def choose_chunk_size(sample_rate_hz: float, segment_samples: int) -> int:
-    responsive_chunk = max(1, int(round(sample_rate_hz * 0.05)))
+    responsive_chunk = max(1, int(round(sample_rate_hz * 0.01)))
     return max(1, min(segment_samples, responsive_chunk))
 
 
