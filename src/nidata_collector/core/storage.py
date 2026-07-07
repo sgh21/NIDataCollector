@@ -11,7 +11,7 @@ from typing import Any
 
 import numpy as np
 
-from .config import AcquisitionGroup, ChannelSelection, RunConfiguration, SignalType
+from ..config import AcquisitionGroup, ChannelSelection, RunConfiguration, SignalType
 
 
 def safe_name(value: str) -> str:

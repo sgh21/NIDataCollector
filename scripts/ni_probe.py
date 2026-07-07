@@ -11,7 +11,7 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from nidata_collector.devices import get_system_snapshot, reserve_network_devices, unreserve_network_devices
+from nidata_collector.hardware.ni import get_system_snapshot, reserve_network_devices, unreserve_network_devices
 
 
 def build_parser() -> argparse.ArgumentParser:

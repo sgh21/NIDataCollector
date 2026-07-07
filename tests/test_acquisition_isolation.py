@@ -12,7 +12,7 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from nidata_collector import daq_engine
+from nidata_collector.core import engine as daq_engine
 from nidata_collector.config import (
     AccelerationSettings,
     AcquisitionGroup,
@@ -21,7 +21,7 @@ from nidata_collector.config import (
     SignalType,
     TemperatureNtcSettings,
 )
-from nidata_collector.devices import ReservationResult
+from nidata_collector.hardware.ni import ReservationResult
 
 
 class FakeWorker:

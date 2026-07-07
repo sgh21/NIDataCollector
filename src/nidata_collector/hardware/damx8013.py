@@ -5,7 +5,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
-from .config import TemperatureNtcSettings
+from ..config import TemperatureNtcSettings
 
 
 DAMX8013_MODEL = "DAMX-8013"

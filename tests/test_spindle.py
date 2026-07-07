@@ -13,7 +13,7 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from nidata_collector.spindle import (
+from nidata_collector.hardware.spindle import (
     SpindleReading,
     SpindleTelemetryRecorder,
     build_read_frame,

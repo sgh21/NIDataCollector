@@ -12,7 +12,7 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from nidata_collector.temperature_card import (
+from nidata_collector.hardware.damx8013 import (
     build_read_holding_registers_request,
     build_write_single_register_request,
     encode_r_kohms,

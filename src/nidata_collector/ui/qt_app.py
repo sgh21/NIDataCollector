@@ -14,7 +14,7 @@ import numpy as np
 import pyqtgraph as pg
 from PySide6 import QtCore, QtWidgets
 
-from .config import (
+from ..config import (
     AccelerationSettings,
     AcquisitionGroup,
     ChannelSelection,
@@ -31,9 +31,9 @@ from .config import (
     TemperatureRecord,
     TemperatureRtdSettings,
 )
-from .daq_engine import AcquisitionController
-from .devices import get_system_snapshot, reserve_network_devices, unreserve_network_devices
-from .spindle import (
+from ..core.engine import AcquisitionController
+from ..hardware.ni import get_system_snapshot, reserve_network_devices, unreserve_network_devices
+from ..hardware.spindle import (
     SpindleConfig,
     SpindleDevice,
     SpindleReading,
@@ -42,7 +42,7 @@ from .spindle import (
     load_spindle_config,
     save_spindle_config,
 )
-from .temperature_card import (
+from ..hardware.damx8013 import (
     DAMX8013_CHANNEL_COUNT,
     Damx8013Config,
     build_temperature_channel_name,
@@ -52,7 +52,7 @@ from .temperature_card import (
 )
 
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(__file__).resolve().parents[3]
 TEMPERATURE_CARD_CONFIG_PATH = ROOT / "config" / "temperature_card.json"
 SPINDLE_CONFIG_PATH = ROOT / "config" / "spindle_control.json"
 EVENT_POLL_INTERVAL_MS = 10

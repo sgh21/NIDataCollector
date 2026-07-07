@@ -10,7 +10,7 @@ from typing import Any
 
 import numpy as np
 
-from .config import (
+from ..config import (
     AccelerationSettings,
     AcquisitionGroup,
     RunConfiguration,
@@ -18,9 +18,9 @@ from .config import (
     TemperatureNtcSettings,
     TemperatureRtdSettings,
 )
-from .devices import get_system_snapshot, reserve_network_devices, unreserve_network_devices
 from .storage import RunStorage, SegmentWriter
-from .temperature_card import Damx8013Client, temperature_channel_index
+from ..hardware.damx8013 import Damx8013Client, temperature_channel_index
+from ..hardware.ni import get_system_snapshot, reserve_network_devices, unreserve_network_devices
 
 
 @dataclass(frozen=True)
