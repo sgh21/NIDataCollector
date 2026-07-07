@@ -15,7 +15,7 @@ class AcquisitionConfig:
     max_g: float = 50.0
     excitation_current_a: float = 0.004
     coupling: str | None = "AC"
-    settle_s: float = 0.5
+    settle_s: float = 5.0
 
     @property
     def samples_per_channel(self) -> int:

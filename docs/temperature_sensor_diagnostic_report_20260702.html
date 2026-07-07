@@ -1,0 +1,244 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>NI 9216 温度传感器通道诊断报告</title>
+  <style>
+    body {
+      margin: 0;
+      background: #f7f8fb;
+      color: #1c2430;
+      font: 14px/1.65 "Microsoft YaHei", "Segoe UI", Arial, sans-serif;
+    }
+    main {
+      width: min(1120px, calc(100% - 40px));
+      margin: 28px auto 48px;
+    }
+    h1 {
+      margin: 0 0 14px;
+      font-size: 27px;
+    }
+    h2 {
+      margin: 26px 0 10px;
+      padding-bottom: 6px;
+      border-bottom: 1px solid #d8dee8;
+      font-size: 19px;
+    }
+    h3 {
+      margin: 18px 0 8px;
+      font-size: 16px;
+    }
+    .panel,
+    table {
+      background: #fff;
+      border: 1px solid #d8dee8;
+      border-radius: 8px;
+    }
+    .panel {
+      padding: 15px 16px;
+      margin: 12px 0;
+    }
+    .meta {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+      gap: 10px 18px;
+    }
+    .label {
+      display: block;
+      color: #657184;
+      font-size: 12px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      overflow: hidden;
+    }
+    th,
+    td {
+      padding: 9px 10px;
+      border-bottom: 1px solid #d8dee8;
+      text-align: left;
+      vertical-align: top;
+    }
+    th {
+      background: #edf1f7;
+    }
+    tr:last-child td {
+      border-bottom: 0;
+    }
+    .status {
+      display: inline-block;
+      min-width: 56px;
+      padding: 2px 8px;
+      border-radius: 999px;
+      font-weight: 700;
+      font-size: 12px;
+      text-align: center;
+    }
+    .ok { background: #e6f4ec; color: #176b3a; }
+    .bad { background: #fdebea; color: #b3261e; }
+    .warn { background: #fff3d8; color: #8a5700; }
+    code,
+    pre {
+      font-family: Consolas, "Cascadia Mono", monospace;
+      font-size: 13px;
+    }
+    code {
+      background: #eef2f7;
+      border-radius: 4px;
+      padding: 1px 4px;
+    }
+    pre {
+      margin: 8px 0 0;
+      padding: 10px;
+      overflow-x: auto;
+      background: #eef2f7;
+      border-radius: 6px;
+    }
+    a {
+      color: #245ca8;
+      text-decoration: none;
+    }
+    a:hover {
+      text-decoration: underline;
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>NI 9216 温度传感器通道诊断报告</h1>
+
+    <section class="panel meta">
+      <div><span class="label">项目目录</span>E:\Documents\ZMProject\NIDataCollector</div>
+      <div><span class="label">测试日期</span>2026-07-02</div>
+      <div><span class="label">测试通道</span>cDAQ9185-254D6AAMod2/ai0</div>
+      <div><span class="label">温度模块</span>NI 9216 / slot 2</div>
+      <div><span class="label">用户描述接线</span>一根线接 EX+ 与 RTD+；另一根线接 RTD- 与 COM</div>
+      <div><span class="label">传感器描述</span>NTD；按热敏电阻/非 PT100 RTD 风险分析</div>
+    </section>
+
+    <section class="panel">
+      <h2>结论</h2>
+      <p>
+        ai0 当前读数不是有效温度信号。实测 RTD 温度在 <code>-242.03 °C</code> 与
+        <code>1254.74 °C</code> 两个极端值之间跳变，电阻模式在约 <code>-499.45 Ω</code>
+        与 <code>+499.47 Ω</code> 两个饱和值之间跳变。这不是正常温度变化，表现为量程外、开路/接线不匹配，
+        或传感器类型与 NI 9216 不匹配。
+      </p>
+      <p>
+        如果传感器确实是 NTD/NTC 热敏电阻，而不是 PT100 RTD，NI 9216 不适合直接采集它的温度。
+        NI 9216 是 PT100 RTD 模块，电阻量程为 <code>0 Ω 到 400 Ω</code>，固定 <code>1 mA</code>
+        激励；典型 NTC/NTD 热敏电阻常见阻值远高于该范围，并且需要热敏电阻公式进行非线性换算。
+      </p>
+    </section>
+
+    <h2>实测结果</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>测试模式</th>
+          <th>结果</th>
+          <th>判断</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>PT3851 RTD / TWO_WIRE / R0=100Ω</td>
+          <td><span class="status bad">失败</span> DAQmx 拒绝配置，错误 <code>-200077</code>；可选值只有 3-wire 和 4-wire。</td>
+          <td>NI 9216 驱动不接受两线 RTD 配置。</td>
+        </tr>
+        <tr>
+          <td>PT3851 RTD / THREE_WIRE / R0=100Ω</td>
+          <td><span class="status bad">异常</span> min=-242.03°C，max=1254.74°C，标准差约 705.58°C。</td>
+          <td>读数在物理温度范围外跳变，不是有效 RTD 温度。</td>
+        </tr>
+        <tr>
+          <td>PT3851 RTD / FOUR_WIRE / R0=100Ω</td>
+          <td><span class="status bad">异常</span> min=-242.03°C，max=1254.74°C，标准差约 746.72°C。</td>
+          <td>同样表现为饱和/开路型异常。</td>
+        </tr>
+        <tr>
+          <td>Resistance / THREE_WIRE / 0-400Ω</td>
+          <td><span class="status bad">异常</span> min=-499.45Ω，max=499.47Ω。</td>
+          <td>超出 NI 9216 有效 0-400Ω 测量范围，出现饱和值。</td>
+        </tr>
+        <tr>
+          <td>Resistance / FOUR_WIRE / 0-400Ω</td>
+          <td><span class="status bad">异常</span> min=-499.45Ω，max=499.47Ω。</td>
+          <td>接线/传感器类型不符合 NI 9216 RTD 测量预期。</td>
+        </tr>
+        <tr>
+          <td>Resistance / TWO_WIRE / 0-10000Ω / 0.1mA</td>
+          <td><span class="status bad">失败</span> DAQmx 拒绝；NI 9216 激励只支持 1mA。</td>
+          <td>不能把 NI 9216 当成普通 10k 热敏电阻采集模块使用。</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h2>排查判断</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>可能原因</th>
+          <th>证据</th>
+          <th>处理建议</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>传感器不是 PT100 RTD</td>
+          <td>NI 9216 对 ai0 读到电阻饱和跳变，而不是 100Ω 附近的稳定电阻。</td>
+          <td>断开传感器，用万用表量两线阻值。室温如果约 100-110Ω，才像 PT100；如果约 1kΩ、10kΩ 或更高，多半不是 NI 9216 适配对象。</td>
+        </tr>
+        <tr>
+          <td>NTD/NTC 热敏电阻接入了 PT100 RTD 模块</td>
+          <td>NI 9216 官方规格是 PT100、0-400Ω、1mA 激励；实测尝试 10kΩ/0.1mA 配置被驱动拒绝。</td>
+          <td>换用支持热敏电阻/高阻值电阻测量的模块，或用分压电路接普通电压输入模块，再按 Beta/Steinhart-Hart 参数软件换算。</td>
+        </tr>
+        <tr>
+          <td>两线 RTD 接法/DAQmx 配置不匹配</td>
+          <td>NI 9216 不接受 DAQmx TWO_WIRE 配置；官方两线 RTD workaround 要按 3-wire 任务配置。</td>
+          <td>如果确认是 PT100 两线 RTD：传感器接 RTD+ 与 RTD-，RTD- 与 COM 短接，软件选择 THREE_WIRE。</td>
+        </tr>
+        <tr>
+          <td>传感器开路或接线接触不良</td>
+          <td>读数稳定落在饱和值两端，符合开路/量程外表现。</td>
+          <td>断电检查端子压接；用万用表直接量传感器两端，轻晃线缆时阻值应连续稳定。</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h2>代码修复记录</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>文件</th>
+          <th>修复</th>
+          <th>验证</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>src\nidata_collector\daq_engine.py</code></td>
+          <td>当 NI 9216 通道设置为 <code>TWO_WIRE</code> 时，底层 DAQmx 自动改用 <code>THREE_WIRE</code> 配置，匹配 NI 对两线 RTD 的 workaround。</td>
+          <td><span class="status ok">通过</span> <code>py_compile</code> 通过；带 reservation 的实际通道配置返回 <code>CONFIG_OK</code>。</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h2>参考依据</h2>
+    <ul>
+      <li><a href="https://www.ni.com/docs/en-US/bundle/ni-9216-specs/page/specs.html">NI-9216 Specifications</a>：NI 9216 是 8 通道、0-400Ω、PT100 RTD 温度输入模块，激励电流为 1mA。</li>
+      <li><a href="https://knowledge.ni.com/KnowledgeArticleDetails?id=kA00Z0000019MQSSA2">NI KnowledgeBase: 2-Wire RTD Support For NI 9216...</a>：NI 9216 不正式支持两线 RTD 精度；两线 RTD workaround 是传感器接 RTD+ 和 RTD-，RTD- 与 COM 加 jumper，并按 3-wire RTD 配置。</li>
+    </ul>
+
+    <h2>下一步建议</h2>
+    <ol>
+      <li>先断开 ai0 传感器，用万用表测室温静态阻值，并记录加热/握住传感器时阻值是上升还是下降。</li>
+      <li>如果室温约 100-110Ω 且加热阻值上升，按 PT100 两线 RTD 处理：接 RTD+、RTD-，短接 RTD- 与 COM，软件选 THREE_WIRE。</li>
+      <li>如果室温约 10kΩ 且加热阻值下降，按 NTC/NTD 热敏电阻处理：不要用 NI 9216 直接采温，改用合适的电阻/电压采集方案和热敏电阻换算公式。</li>
+    </ol>
+  </main>
+</body>
+</html>

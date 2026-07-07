@@ -4,7 +4,7 @@ import queue
 import threading
 import time
 import traceback
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -15,10 +15,12 @@ from .config import (
     AcquisitionGroup,
     RunConfiguration,
     SignalType,
+    TemperatureNtcSettings,
     TemperatureRtdSettings,
 )
 from .devices import get_system_snapshot, reserve_network_devices, unreserve_network_devices
 from .storage import RunStorage, SegmentWriter
+from .temperature_card import Damx8013Client, temperature_channel_index
 
 
 @dataclass(frozen=True)
@@ -166,6 +168,10 @@ class AcquisitionController:
     def recording(self) -> bool:
         return self._recording_control.recording
 
+    @property
+    def has_saves(self) -> bool:
+        return self._config.has_saves if self._config is not None else False
+
     def start(self, config: RunConfiguration) -> None:
         if self._running:
             raise RuntimeError("Acquisition is already running.")
@@ -174,27 +180,71 @@ class AcquisitionController:
 
         self._stop_event.clear()
         self._recording_control = RecordingControl()
-        self._config = config
-        reservations = reserve_network_devices(override=config.override_network_reservation)
-        failures = [result for result in reservations if not result.ok]
-        for result in reservations:
-            status = "reserved" if result.ok else "reservation failed"
-            self.events.put(AcquisitionEvent("status", message=f"{result.device}: {status} {result.message}"))
-            if result.ok:
-                self._reserved_devices.add(result.device)
-        if failures:
-            details = "\n".join(f"{item.device}: {item.message}" for item in failures)
-            self.release_reserved_devices()
-            raise RuntimeError(f"Failed to reserve NI network device(s):\n{details}")
+        self._config = None
+        self._device_snapshot = None
+        active_groups = list(config.groups)
+        has_daqmx_groups = any(group.signal_type != SignalType.TEMPERATURE_NTC for group in active_groups)
+        if has_daqmx_groups:
+            try:
+                reservations = reserve_network_devices(override=config.override_network_reservation)
+            except Exception as exc:
+                active_groups = self._drop_daqmx_groups(
+                    active_groups,
+                    f"NI reservation skipped: {type(exc).__name__}: {exc}",
+                )
+            else:
+                failures = [result for result in reservations if not result.ok]
+                for result in reservations:
+                    status = "reserved" if result.ok else "reservation failed"
+                    self.events.put(AcquisitionEvent("status", message=f"{result.device}: {status} {result.message}"))
+                    if result.ok:
+                        self._reserved_devices.add(result.device)
+                if failures:
+                    details = "\n".join(f"{item.device}: {item.message}" for item in failures)
+                    self.release_reserved_devices()
+                    active_groups = self._drop_daqmx_groups(
+                        active_groups,
+                        f"NI acquisition disabled because network reservation failed:\n{details}",
+                    )
 
-        self._device_snapshot = get_system_snapshot()
+        if any(group.signal_type != SignalType.TEMPERATURE_NTC for group in active_groups):
+            try:
+                self._device_snapshot = get_system_snapshot()
+            except Exception as exc:
+                self.release_reserved_devices()
+                active_groups = self._drop_daqmx_groups(
+                    active_groups,
+                    f"NI acquisition disabled because device snapshot failed: {type(exc).__name__}: {exc}",
+                )
+
+        if not active_groups:
+            raise RuntimeError("No selected acquisition device is available.")
+
+        if self._device_snapshot is None:
+            self._device_snapshot = {"driver_version": "", "devices": []}
+        effective_config = replace(config, groups=active_groups)
+        self._config = effective_config
+        self._device_snapshot["serial_temperature_cards"] = serial_temperature_card_snapshots(active_groups)
+        if len(active_groups) != len(config.groups):
+            self.events.put(
+                AcquisitionEvent(
+                    "status",
+                    message=(
+                        f"Monitoring will continue with {len(active_groups)} available "
+                        f"acquisition group(s)."
+                    ),
+                )
+            )
 
         self._threads = []
         self._workers = []
-        for group in config.groups:
-            worker = AcquisitionWorker(group, self._recording_control, self.events, self._stop_event)
+        for group in active_groups:
+            if group.signal_type == SignalType.TEMPERATURE_NTC:
+                worker = TemperatureNtcWorker(group, self._recording_control, self.events, self._stop_event)
+            else:
+                worker = AcquisitionWorker(group, self._recording_control, self.events, self._stop_event)
             self._workers.append(worker)
-            thread = threading.Thread(target=worker.run, name=f"daq-{group.signal_type.value}", daemon=True)
+            thread = threading.Thread(target=worker.run, name=f"acq-{group.signal_type.value}", daemon=True)
             self._threads.append(thread)
             thread.start()
 
@@ -253,12 +303,33 @@ class AcquisitionController:
     def release_reserved_devices(self) -> None:
         if not self._reserved_devices:
             return
-        results = unreserve_network_devices(self._reserved_devices)
+        try:
+            results = unreserve_network_devices(self._reserved_devices)
+        except Exception as exc:
+            self.events.put(
+                AcquisitionEvent(
+                    "status",
+                    message=f"NI release skipped: {type(exc).__name__}: {exc}",
+                )
+            )
+            return
         for result in results:
             status = "released" if result.ok else "release failed"
             self.events.put(AcquisitionEvent("status", message=f"{result.device}: {status} {result.message}"))
             if result.ok:
                 self._reserved_devices.discard(result.device)
+
+    def _drop_daqmx_groups(self, groups: list[AcquisitionGroup], reason: str) -> list[AcquisitionGroup]:
+        remaining = [group for group in groups if group.signal_type == SignalType.TEMPERATURE_NTC]
+        if remaining:
+            self.events.put(
+                AcquisitionEvent(
+                    "status",
+                    message=f"{reason}\nSerial temperature acquisition remains available.",
+                )
+            )
+            return remaining
+        raise RuntimeError(reason)
 
 
 class AcquisitionWorker:
@@ -286,7 +357,6 @@ class AcquisitionWorker:
                     payload={"traceback": traceback.format_exc()},
                 )
             )
-            self.stop_event.set()
 
     def _run(self) -> None:
         import nidaqmx
@@ -455,6 +525,164 @@ class AcquisitionWorker:
         )
 
 
+class TemperatureNtcWorker(AcquisitionWorker):
+    def _run(self) -> None:
+        settings = self.group.settings
+        if not isinstance(settings, TemperatureNtcSettings):
+            raise TypeError("NTC temperature group requires TemperatureNtcSettings.")
+
+        channels = self.group.read_channels
+        if not channels:
+            return
+
+        channel_indices = [temperature_channel_index(channel) for channel in channels]
+        samples_per_segment = max(1, int(settings.segment_samples))
+        poll_interval_s = 1.0 / settings.sample_rate_hz
+        writer: AsyncSegmentWriter | None = None
+        local_recording_generation = 0
+        sample_cursor = 0
+        segment_start = 0
+        segment = np.empty((len(channels), samples_per_segment), dtype=np.float64)
+        segment_fill = 0
+        next_record_sample = 0
+        consecutive_failures = 0
+
+        try:
+            with Damx8013Client(settings) as client:
+                if settings.sync_parameters_on_start:
+                    client.sync_ntc_parameters()
+                    self.events.put(
+                        AcquisitionEvent(
+                            "status",
+                            group=self.group.signal_type.value,
+                            message=(
+                                f"DAMX-8013 NTC parameters synced on {settings.port}: "
+                                f"R={settings.r_kohms:g}K, B={settings.b_value}"
+                            ),
+                        )
+                    )
+
+                self.events.put(
+                    AcquisitionEvent(
+                        "status",
+                        group=self.group.signal_type.value,
+                        message=f"DAMX-8013 task started on {settings.port}: {len(channels)} channel(s)",
+                    )
+                )
+
+                while not self.stop_event.is_set():
+                    loop_started = time.monotonic()
+                    storage, generation, _started_at = self.recording_control.snapshot()
+                    if generation != local_recording_generation:
+                        writer = self._start_writer(storage)
+                        local_recording_generation = generation
+                        segment_fill = 0
+                        segment_start = 0
+                        next_record_sample = 0
+
+                    try:
+                        all_temperatures = client.read_temperatures()
+                        consecutive_failures = 0
+                    except Exception as exc:
+                        consecutive_failures += 1
+                        self.events.put(
+                            AcquisitionEvent(
+                                "status",
+                                group=self.group.signal_type.value,
+                                message=(
+                                    f"DAMX-8013 read failed "
+                                    f"({consecutive_failures}/3): {type(exc).__name__}: {exc}"
+                                ),
+                            )
+                        )
+                        if consecutive_failures >= 3:
+                            raise RuntimeError(
+                                "DAMX-8013 read failed 3 consecutive times."
+                            ) from exc
+                        self._wait_for_next_poll(loop_started, poll_interval_s)
+                        continue
+
+                    chunk = np.asarray(
+                        [[all_temperatures[index]] for index in channel_indices],
+                        dtype=np.float64,
+                    )
+                    time_s = np.array([sample_cursor / settings.sample_rate_hz], dtype=np.float64)
+                    self._emit_plot(sample_cursor, time_s, chunk)
+
+                    if writer is not None:
+                        if segment_fill == 0:
+                            segment_start = next_record_sample
+                        segment[:, segment_fill] = chunk[:, 0]
+                        segment_fill += 1
+                        next_record_sample += 1
+                        if segment_fill == samples_per_segment:
+                            segment_time = (
+                                np.arange(samples_per_segment, dtype=np.float64) + segment_start
+                            ) / settings.sample_rate_hz
+                            writer.enqueue(
+                                segment_start,
+                                settings.sample_rate_hz,
+                                segment_time,
+                                segment,
+                            )
+                            segment_fill = 0
+
+                    sample_cursor += 1
+                    self._wait_for_next_poll(loop_started, poll_interval_s)
+
+                if writer is not None and segment_fill:
+                    partial = segment[:, :segment_fill]
+                    partial_time = (
+                        np.arange(segment_fill, dtype=np.float64) + segment_start
+                    ) / settings.sample_rate_hz
+                    writer.enqueue(
+                        segment_start,
+                        settings.sample_rate_hz,
+                        partial_time,
+                        partial,
+                        partial=True,
+                    )
+        finally:
+            if writer is not None:
+                self.events.put(
+                    AcquisitionEvent(
+                        "status",
+                        group=self.group.signal_type.value,
+                        message=f"Flushing {self.group.signal_type.label} file queue",
+                    )
+                )
+                writer.close()
+
+    def _wait_for_next_poll(self, loop_started: float, poll_interval_s: float) -> None:
+        remaining = poll_interval_s - (time.monotonic() - loop_started)
+        if remaining > 0:
+            self.stop_event.wait(remaining)
+
+
+def serial_temperature_card_snapshots(groups: list[AcquisitionGroup]) -> list[dict[str, Any]]:
+    snapshots: list[dict[str, Any]] = []
+    for group in groups:
+        if group.signal_type != SignalType.TEMPERATURE_NTC:
+            continue
+        settings = group.settings
+        if not isinstance(settings, TemperatureNtcSettings):
+            continue
+        snapshots.append(
+            {
+                "model": settings.model,
+                "port": settings.port,
+                "slave_id": settings.slave_id,
+                "baudrate": settings.baudrate,
+                "data_bits": settings.data_bits,
+                "parity": settings.parity,
+                "stop_bits": settings.stop_bits,
+                "channel_count": settings.channel_count,
+                "channels": group.read_channels,
+            }
+        )
+    return snapshots
+
+
 def choose_chunk_size(sample_rate_hz: float, segment_samples: int) -> int:
     responsive_chunk = max(1, int(round(sample_rate_hz * 0.01)))
     return max(1, min(segment_samples, responsive_chunk))
@@ -499,6 +727,13 @@ def configure_temperature_channels(task: Any, group: AcquisitionGroup) -> None:
     if not isinstance(settings, TemperatureRtdSettings):
         raise TypeError("Temperature group requires TemperatureRtdSettings.")
 
+    resistance_config_name = settings.resistance_config.upper()
+    if resistance_config_name == "TWO_WIRE" and any(
+        "9216" in channel.product_type for channel in group.channels
+    ):
+        # NI documents the NI 9216 two-wire RTD workaround as a 3-wire DAQmx task.
+        resistance_config_name = "THREE_WIRE"
+
     for channel in group.read_channels:
         task.ai_channels.add_ai_rtd_chan(
             channel,
@@ -506,7 +741,7 @@ def configure_temperature_channels(task: Any, group: AcquisitionGroup) -> None:
             max_val=settings.max_value,
             units=TemperatureUnits.DEG_C,
             rtd_type=RTDType[settings.rtd_type.upper()],
-            resistance_config=ResistanceConfiguration[settings.resistance_config.upper()],
+            resistance_config=ResistanceConfiguration[resistance_config_name],
             current_excit_source=ExcitationSource.INTERNAL,
             current_excit_val=settings.excitation_current_a,
             r_0=settings.r0_ohms,

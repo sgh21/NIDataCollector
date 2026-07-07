@@ -1,0 +1,25 @@
+{
+  "mode": "nidaqmx",
+  "channels": [
+    "cDAQ9185-254D6AAMod1/ai0"
+  ],
+  "sample_rate_hz": 5120.0,
+  "duration_s": 1.0,
+  "samples_per_channel": 5120,
+  "sensor_sensitivity_mv_per_g": 100.0,
+  "min_g": -50.0,
+  "max_g": 50.0,
+  "excitation_current_a": 0.004,
+  "coupling": "AC",
+  "settle_s": 0.5,
+  "stats": [
+    {
+      "channel": "cDAQ9185-254D6AAMod1/ai0",
+      "mean_g": 4.993918489945135,
+      "rms_g": 6.045030469446188,
+      "min_g": 1.2331580607400001,
+      "max_g": 13.718380843930001,
+      "peak_to_peak_g": 12.48522278319
+    }
+  ]
+}

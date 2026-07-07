@@ -1,0 +1,18 @@
+{
+  "model": "DAMX-8013",
+  "port": "COM9",
+  "slave_id": 1,
+  "baudrate": 9600,
+  "data_bits": 8,
+  "parity": "N",
+  "stop_bits": 1.0,
+  "timeout_s": 1.0,
+  "channel_count": 2,
+  "sample_rate_hz": 1.0,
+  "segment_samples": 10,
+  "min_deg_c": -40.0,
+  "max_deg_c": 150.0,
+  "r_kohms": 10.0,
+  "b_value": 3950,
+  "sync_parameters_on_start": true
+}

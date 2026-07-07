@@ -7,14 +7,15 @@ from pathlib import Path
 
 class SignalType(str, Enum):
     ACCELERATION = "acceleration"
+    TEMPERATURE_NTC = "temperature_ntc"
     TEMPERATURE_RTD = "temperature_rtd"
 
     @property
     def label(self) -> str:
         if self == SignalType.ACCELERATION:
             return "Vibration"
-        if self == SignalType.TEMPERATURE_RTD:
-            return "RTD Temperature"
+        if self in (SignalType.TEMPERATURE_NTC, SignalType.TEMPERATURE_RTD):
+            return "Temperature"
         return self.value
 
     @property
@@ -22,6 +23,8 @@ class SignalType(str, Enum):
         if self == SignalType.ACCELERATION:
             return "g"
         if self == SignalType.TEMPERATURE_RTD:
+            return "degC"
+        if self == SignalType.TEMPERATURE_NTC:
             return "degC"
         return ""
 
@@ -59,7 +62,7 @@ class AccelerationSettings(SignalAcquisitionSettings):
     sensitivity_mv_per_g: float = 100.0
     excitation_current_a: float = 0.004
     coupling: str = "AC"
-    settle_seconds: float = 0.5
+    settle_seconds: float = 5.0
 
 
 @dataclass(frozen=True)
@@ -68,6 +71,22 @@ class TemperatureRtdSettings(SignalAcquisitionSettings):
     resistance_config: str = "FOUR_WIRE"
     excitation_current_a: float = 0.001
     r0_ohms: float = 100.0
+
+
+@dataclass(frozen=True)
+class TemperatureNtcSettings(SignalAcquisitionSettings):
+    model: str = "DAMX-8013"
+    port: str = "COM3"
+    slave_id: int = 1
+    baudrate: int = 9600
+    data_bits: int = 8
+    parity: str = "N"
+    stop_bits: float = 1.0
+    timeout_s: float = 1.0
+    channel_count: int = 2
+    r_kohms: float = 10.0
+    b_value: int = 3950
+    sync_parameters_on_start: bool = True
 
 
 @dataclass(frozen=True)

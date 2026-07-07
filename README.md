@@ -62,7 +62,7 @@ Outputs are written to `data/`:
 
 Adjust `--sensor-sensitivity-mv-per-g`, `--min-g`, `--max-g`, and
 `--excitation-current` to match the accelerometer datasheet. The acquisition
-script uses `--coupling AC` and `--settle-seconds 0.5` by default so startup
+script uses `--coupling AC` and `--settle-seconds 5.0` by default so startup
 transients from IEPE excitation are discarded before saving data.
 
 ## Simulated Pipeline Check
@@ -98,6 +98,23 @@ Supported modules in the current implementation:
 
 - `NI 9234`: IEPE acceleration / vibration, saved in `g`
 - `NI 9216`: RTD temperature, saved in `degC`
+- `DAMX-8013`: two-channel NTC temperature over RS485 MODBUS-RTU, saved in `degC`
+- Spindle controller: serial speed control plus actual speed/current feedback
+
+The DAMX-8013 serial temperature card is configured in
+`config/temperature_card.json`. Set `port` to the actual COM port before
+refreshing devices in the desktop app. The card is fixed to two NTC channels
+(`COMx/ntc1` and `COMx/ntc2`). The default NTC parameters are `r_kohms=10.0`
+and `b_value=3950`; edit the JSON file to change them. When
+`sync_parameters_on_start` is `true`, the app writes R to register `40926` and
+B to register `40927` before polling temperature registers `40001` and `40002`.
+
+The spindle controller is configured in `config/spindle_control.json`. It uses
+the serial protocol from `ref/spindle_python_interface`, with `COM10` and
+`19200` baud by default. The `Spindle` settings tab connects/disconnects the
+controller, sets target rpm, sends stop, and shows actual speed/current feedback.
+When recording is triggered while the spindle is connected, `spindle_telemetry.csv`
+and `spindle_telemetry.json` are written in the run folder.
 
 The desktop app uses `PySide6` and `pyqtgraph` for live plotting. The plotting
 widgets reuse curve objects and update them with `setData()`, which avoids the
@@ -123,12 +140,20 @@ The status bar shows whether the app is monitoring or recording. During
 recording it displays elapsed recording time and the number of segment files
 that have been written.
 
-The live plot area has separate tabs for `Vibration` and `RTD Temperature`.
-Each signal type has its own display window length and manual Y-axis range, so
-temperature can use a much longer trend window than high-rate vibration. Plot
+The live plot area has separate tabs for `Vibration` and `Temperature`. RTD and
+NTC channels share the same temperature plot page, with curve titles prefixed as
+`NTC` or `RTD`; NTC curves are ordered before RTD curves. Vibration and
+temperature each have their own display window length and manual Y-axis range,
+so temperature can use a much longer trend window than high-rate vibration. Plot
 refresh is intentionally faster than file segment rotation, and plotted data is
 downsampled for display only. Saved CSV files still keep every acquired sample
 in each segment.
+
+The plot toolbar includes a live NTC safety badge in the upper-right corner.
+It shows the highest current NTC temperature only, uses the `Alert degC`
+threshold for OK/NEAR/OVER coloring, and lists each NTC channel's latest
+temperature in the tooltip. Each temperature plot title also shows its own
+latest value, including both NTC and RTD channels.
 
 The `Record` settings tab captures experiment metadata following the spindle
 monitoring record template: spindle information, operating condition, speed,

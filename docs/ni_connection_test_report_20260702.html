@@ -1,0 +1,250 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>NI 采集卡连接与读取测试记录</title>
+  <style>
+    body {
+      margin: 0;
+      background: #f7f8fb;
+      color: #1e2633;
+      font: 14px/1.65 "Microsoft YaHei", "Segoe UI", Arial, sans-serif;
+    }
+    main {
+      width: min(1100px, calc(100% - 40px));
+      margin: 28px auto 46px;
+    }
+    h1 {
+      margin: 0 0 14px;
+      font-size: 27px;
+    }
+    h2 {
+      margin: 26px 0 10px;
+      padding-bottom: 6px;
+      border-bottom: 1px solid #d8dee8;
+      font-size: 19px;
+    }
+    .panel,
+    table {
+      background: #fff;
+      border: 1px solid #d8dee8;
+      border-radius: 8px;
+    }
+    .panel {
+      padding: 15px 16px;
+      margin: 12px 0;
+    }
+    .meta {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+      gap: 10px 18px;
+    }
+    .label {
+      display: block;
+      color: #657184;
+      font-size: 12px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      overflow: hidden;
+    }
+    th,
+    td {
+      padding: 9px 10px;
+      border-bottom: 1px solid #d8dee8;
+      text-align: left;
+      vertical-align: top;
+    }
+    th {
+      background: #edf1f7;
+    }
+    tr:last-child td {
+      border-bottom: 0;
+    }
+    .status {
+      display: inline-block;
+      min-width: 56px;
+      padding: 2px 8px;
+      border-radius: 999px;
+      font-weight: 700;
+      font-size: 12px;
+      text-align: center;
+    }
+    .ok { background: #e6f4ec; color: #176b3a; }
+    .blocked { background: #fff3d8; color: #8a5700; }
+    .fail { background: #fdebea; color: #b3261e; }
+    code,
+    pre {
+      font-family: Consolas, "Cascadia Mono", monospace;
+      font-size: 13px;
+    }
+    code {
+      background: #eef2f7;
+      border-radius: 4px;
+      padding: 1px 4px;
+    }
+    pre {
+      margin: 8px 0 0;
+      padding: 10px;
+      overflow-x: auto;
+      background: #eef2f7;
+      border-radius: 6px;
+    }
+    ul {
+      margin: 8px 0 0 20px;
+      padding: 0;
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>NI 采集卡连接与读取测试记录</h1>
+
+    <section class="panel meta">
+      <div><span class="label">项目目录</span>E:\Documents\ZMProject\NIDataCollector</div>
+      <div><span class="label">测试日期</span>2026-07-02</div>
+      <div><span class="label">Conda 环境</span>NI / Python 3.11.4</div>
+      <div><span class="label">目标设备</span>cDAQ9185-254D6AA / 169.254.15.139 / fe80::280:2fff:fe43:1ed5%22</div>
+      <div><span class="label">报告生成方式</span>手写 HTML；未使用 Python 生成 HTML</div>
+    </section>
+
+    <section class="panel">
+      <h2>结论</h2>
+      <p>
+        重新安装 NI-DAQmx 后，驱动层问题已解决，DAQmx 23.8.0、关键 DLL 和 NI Device Loader 均可用。
+        cDAQ 机箱也能通过 mDNS/IPv6 在有线网卡上发现。但是 DAQmx 仍不能把该网络 cDAQ 添加到本机配置，
+        原因是机箱当前处于 IPv4 link-local 地址 <code>169.254.15.139</code>，而本机有线网卡只有
+        <code>192.168.0.14/24</code>，没有 <code>169.254.0.0/16</code> 的 IPv4 地址/路由。
+        本次会话没有管理员权限，无法添加临时 IPv4 地址或路由，因此还不能执行真实数据读取。
+      </p>
+    </section>
+
+    <h2>已确认修复</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>检查项</th>
+          <th>结果</th>
+          <th>说明</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>NI-DAQmx 安装</td>
+          <td><span class="status ok">通过</span></td>
+          <td><code>ni-daqmx 23.8.0</code>、<code>ni-daqmx-runtime-core</code>、<code>ni-daqmx-config-support-core</code> 已安装。</td>
+        </tr>
+        <tr>
+          <td>DAQmx DLL</td>
+          <td><span class="status ok">通过</span></td>
+          <td><code>C:\Windows\System32\nicaiu.dll</code> 和 <code>nicai_utf8.dll</code> 已存在。</td>
+        </tr>
+        <tr>
+          <td>NI Device Loader</td>
+          <td><span class="status ok">通过</span></td>
+          <td><code>nidevldu</code> 服务运行中，启动类型为 Automatic。</td>
+        </tr>
+        <tr>
+          <td>Python nidaqmx</td>
+          <td><span class="status ok">通过</span></td>
+          <td><code>nidaqmx 1.5.0</code> 可导入，已不再报缺少 NI-DAQmx 驱动。</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h2>连接测试结果</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>测试项</th>
+          <th>命令/动作</th>
+          <th>结果</th>
+          <th>关键输出</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>DAQmx 枚举</td>
+          <td><code>python scripts\ni_probe.py</code></td>
+          <td><span class="status blocked">未枚举</span></td>
+          <td>DAQmx driver: 23.8.0；<code>Devices:</code> 为空。</td>
+        </tr>
+        <tr>
+          <td>mDNS 解析</td>
+          <td><code>Resolve-DnsName cDAQ9185-254D6AA.local</code></td>
+          <td><span class="status ok">通过</span></td>
+          <td>解析到 IPv4 <code>169.254.15.139</code> 和 IPv6 <code>fe80::280:2fff:fe43:1ed5</code>。</td>
+        </tr>
+        <tr>
+          <td>主机名 ping</td>
+          <td><code>Test-Connection cDAQ9185-254D6AA -Count 4</code></td>
+          <td><span class="status ok">通过</span></td>
+          <td>响应 0-5 ms，说明设备在链路层/发现层可达。</td>
+        </tr>
+        <tr>
+          <td>IPv6 link-local ping</td>
+          <td><code>ping -n 4 fe80::280:2fff:fe43:1ed5%22</code></td>
+          <td><span class="status ok">通过</span></td>
+          <td>4/4 成功，平均约 2 ms。</td>
+        </tr>
+        <tr>
+          <td>DAQmx 添加网络设备</td>
+          <td><code>Device.add_network_device("169.254.15.139", "cDAQ9185-254D6AA", attempt_reservation=True)</code></td>
+          <td><span class="status blocked">失败</span></td>
+          <td><code>-201401</code>：读取网络设备属性失败，属性 <code>DAQmx_Dev_TCPIP_Hostname</code>。</td>
+        </tr>
+        <tr>
+          <td>DAQmx 按主机名添加</td>
+          <td><code>Device.add_network_device("cDAQ9185-254D6AA.local", ...)</code></td>
+          <td><span class="status blocked">失败</span></td>
+          <td><code>-201252</code>：没有到设备的已知网络路由。</td>
+        </tr>
+        <tr>
+          <td>临时添加 IPv4 link-local 地址</td>
+          <td><code>New-NetIPAddress -InterfaceAlias "以太网" -IPAddress 169.254.0.10 -PrefixLength 16 -PolicyStore ActiveStore</code></td>
+          <td><span class="status fail">权限不足</span></td>
+          <td>Windows 返回 <code>Access is denied.</code></td>
+        </tr>
+        <tr>
+          <td>临时添加路由</td>
+          <td><code>route add 169.254.0.0 mask 255.255.0.0 0.0.0.0 if 22</code></td>
+          <td><span class="status fail">权限不足</span></td>
+          <td>Windows 返回 <code>The requested operation requires elevation.</code></td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h2>需要的下一步</h2>
+    <p>用管理员 PowerShell 执行下面其中一种方案后，再重新运行采集测试。</p>
+    <h3>方案 A：临时给有线网卡添加 link-local 地址</h3>
+    <pre>New-NetIPAddress -InterfaceAlias "以太网" -IPAddress 169.254.0.10 -PrefixLength 16 -PolicyStore ActiveStore</pre>
+    <p>然后回到项目目录运行：</p>
+    <pre>$env:PYTHONNOUSERSITE='1'
+E:\software\conda\envs\NI\python.exe scripts\ni_probe.py
+E:\software\conda\envs\NI\python.exe scripts\acquire_vibration.py --duration 1 --sample-rate 1024 --output-dir data\hardware_test_20260702 --prefix real_validation</pre>
+
+    <h3>方案 B：把 cDAQ 配置为 192.168.0.x 静态地址</h3>
+    <ul>
+      <li>在 NI MAX 中找到 <code>cDAQ9185-254D6AA</code>。</li>
+      <li>把设备 IPv4 配置为与有线网卡同网段，例如 <code>192.168.0.169/24</code>。</li>
+      <li>保存后重新运行 <code>scripts\ni_probe.py</code>。</li>
+    </ul>
+
+    <h2>Bug 与修复记录</h2>
+    <ul>
+      <li>本轮没有修改项目代码，也没有发现 Python 项目层面的 Bug。</li>
+      <li>上一轮的驱动缺失问题已由重新安装 NI-DAQmx 解决。</li>
+      <li>当前阻塞是 Windows 网络配置权限和 cDAQ IPv4 link-local 路由问题，不是采集脚本或 Python 包问题。</li>
+    </ul>
+
+    <h2>清理记录</h2>
+    <ul>
+      <li>未新增临时代码。</li>
+      <li>未生成真实采集数据文件。</li>
+      <li>未修改系统网络配置，因为管理员权限不足。</li>
+    </ul>
+  </main>
+</body>
+</html>

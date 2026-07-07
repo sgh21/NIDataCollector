@@ -58,7 +58,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--settle-seconds",
         type=float,
-        default=0.5,
+        default=5.0,
         help="Extra seconds to acquire and discard after task start.",
     )
     parser.add_argument(

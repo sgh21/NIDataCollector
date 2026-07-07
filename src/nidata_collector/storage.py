@@ -57,7 +57,10 @@ class RunStorage:
         payload = {
             "run_id": self.run_id,
             "created_at_local": datetime.now().isoformat(timespec="seconds"),
-            "time_axis": "sample_index / configured_sample_rate_hz; generated from DAQmx hardware-timed samples",
+            "time_axis": (
+                "sample_index / configured_sample_rate_hz; NI groups use DAQmx hardware-timed "
+                "samples, DAMX-8013 NTC groups use serial poll count"
+            ),
             "output_dir": str(self.run_dir),
             "configuration": to_jsonable(config),
             "device_snapshot": to_jsonable(device_snapshot),
@@ -186,7 +189,7 @@ class SegmentWriter:
             "sample_start_index": sample_start_index,
             "sample_count": int(selected.shape[1]),
             "sample_rate_hz": sample_rate_hz,
-            "time_axis": "time_s = sample_index / sample_rate_hz from DAQmx hardware-timed samples",
+            "time_axis": time_axis_description(self.group),
             "settings": to_jsonable(settings),
             "experiment_record": to_jsonable(self.run_storage.config.experiment_record),
             "segment_record": to_jsonable(segment_record),
@@ -195,6 +198,12 @@ class SegmentWriter:
         atomic_write_json(json_path, metadata)
         self.run_storage.append_segment_record(segment_record)
         return csv_path, json_path
+
+
+def time_axis_description(group: AcquisitionGroup) -> str:
+    if group.signal_type == SignalType.TEMPERATURE_NTC:
+        return "time_s = sample_index / sample_rate_hz from DAMX-8013 serial poll count"
+    return "time_s = sample_index / sample_rate_hz from DAQmx hardware-timed samples"
 
 
 def write_segment_csv(
