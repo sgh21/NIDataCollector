@@ -71,6 +71,7 @@ def analyze_channel(
             "envelope": {},
             "warnings": warnings + ["signal is too short for reliable analysis"],
             "analysis_notes": ["Signal is too short for reliable FFT, PSD, or envelope analysis."],
+            "_waveform": clean_values.tolist(),
         }
 
     demeaned = clean_values - float(np.mean(clean_values))
@@ -87,6 +88,7 @@ def analyze_channel(
         "envelope": envelope_features,
         "warnings": warnings,
         "analysis_notes": notes,
+        "_waveform": clean_values.tolist(),
     }
 
 
