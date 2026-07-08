@@ -1,0 +1,20 @@
+[project]
+name = "nidatacollector-data-analysis"
+version = "0.1.0"
+description = "DataAnalysis branch tools for NI vibration segment analysis"
+requires-python = ">=3.10"
+dependencies = [
+  "numpy",
+  "scipy",
+  "matplotlib",
+  "pandas",
+]
+
+[project.optional-dependencies]
+test = [
+  "pytest",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src", "."]
