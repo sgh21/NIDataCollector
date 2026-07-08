@@ -95,10 +95,16 @@ def _finite_values(values: np.ndarray) -> tuple[np.ndarray, list[str]]:
     finite_ratio = float(np.count_nonzero(mask) / values.size) if values.size else 0.0
     warnings: list[str] = []
     if finite_ratio < 1.0:
-        warnings.append(f"non-finite values removed; finite ratio={finite_ratio:.6f}")
+        warnings.append(f"non-finite values interpolated; finite ratio={finite_ratio:.6f}")
     if finite_ratio < 0.5:
         return np.asarray([], dtype=float), warnings + ["finite-value ratio below 0.5"]
-    return values[mask].astype(float), warnings
+    if finite_ratio == 1.0:
+        return values.astype(float), warnings
+
+    finite_indices = np.flatnonzero(mask)
+    finite_values = values[mask].astype(float)
+    interpolated = np.interp(np.arange(values.size, dtype=float), finite_indices.astype(float), finite_values)
+    return interpolated.astype(float), warnings
 
 
 def _basic_info(channel: str, time_s: np.ndarray, values: np.ndarray, sample_rate_hz: float, unit: str) -> dict[str, Any]:
@@ -132,6 +138,14 @@ def _time_domain_features(values: np.ndarray, sample_rate_hz: float) -> dict[str
     eps = 1e-12
     signs = np.signbit(values)
     zero_crossings = int(np.count_nonzero(signs[1:] != signs[:-1])) if values.size > 1 else 0
+    if values.size > 2 and std > 1e-12:
+        skewness = float(stats.skew(values, bias=False))
+    else:
+        skewness = 0.0
+    if values.size > 3 and std > 1e-12:
+        kurtosis = float(stats.kurtosis(values, fisher=False, bias=False))
+    else:
+        kurtosis = 0.0
     return {
         "mean": mean,
         "std": std,
@@ -146,8 +160,8 @@ def _time_domain_features(values: np.ndarray, sample_rate_hz: float) -> dict[str
         "impulse_factor": float(peak_abs / max(absolute_mean, eps)),
         "shape_factor": float(rms / max(absolute_mean, eps)),
         "clearance_factor": float(peak_abs / max(sqrt_abs_mean**2, eps)),
-        "skewness": float(stats.skew(values, bias=False)) if values.size > 2 else 0.0,
-        "kurtosis": float(stats.kurtosis(values, fisher=False, bias=False)) if values.size > 3 else 0.0,
+        "skewness": skewness,
+        "kurtosis": kurtosis,
         "zero_crossing_rate_hz": float(zero_crossings * sample_rate_hz / max(values.size - 1, 1)),
     }
 
@@ -210,7 +224,10 @@ def _top_peaks(frequencies: np.ndarray, amplitudes: np.ndarray, top_peaks: int, 
         return []
     peak_indices, _ = signal.find_peaks(amplitudes)
     if peak_indices.size == 0:
-        peak_indices = np.array([int(np.argmax(amplitudes[1:]) + 1)])
+        non_dc = amplitudes[1:]
+        if non_dc.size == 0 or float(np.max(non_dc)) <= 0.0:
+            return []
+        peak_indices = np.array([int(np.argmax(non_dc) + 1)])
     ordered = peak_indices[np.argsort(amplitudes[peak_indices])[::-1]][:top_peaks]
     return [_with_order(float(frequencies[index]), float(amplitudes[index]), rpm) for index in ordered]
 

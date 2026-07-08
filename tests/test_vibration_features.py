@@ -110,13 +110,63 @@ def test_non_finite_input_warns_and_analyzes_finite_values(tmp_path):
 
     result = analyze_segment(segment, top_peaks=3)
     channel = result["channels"][0]
-    finite_values = np.array([1.0, 2.0, 3.0, 4.0, 5.0], dtype=float)
+    expected_values = np.interp(
+        np.arange(values.size, dtype=float),
+        np.flatnonzero(np.isfinite(values)).astype(float),
+        values[np.isfinite(values)],
+    )
 
-    assert any("non-finite values removed" in warning for warning in channel["warnings"])
+    assert any("non-finite values interpolated" in warning for warning in channel["warnings"])
     assert channel["basic"]["finite_ratio"] == pytest.approx(5 / 8)
-    assert channel["time_domain"]["rms"] == pytest.approx(np.sqrt(np.mean(finite_values**2)))
+    assert channel["time_domain"]["rms"] == pytest.approx(np.sqrt(np.mean(expected_values**2)))
     assert channel["frequency_domain"]["bands"]
     assert channel["envelope"]["rms"] > 0.0
+
+
+def test_non_finite_samples_keep_alignment_for_frequency_analysis(tmp_path):
+    sample_rate_hz = 4096.0
+    duration_s = 2.0
+    frequency_hz = 128.0
+    time_s = np.arange(int(sample_rate_hz * duration_s)) / sample_rate_hz
+    values = np.sin(2.0 * np.pi * frequency_hz * time_s)
+    values[1000] = np.nan
+    values[2500] = np.inf
+    path = write_npz_xz_segment(
+        tmp_path / "aligned-nonfinite.npz.xz",
+        data=values[None, :],
+        sample_rate_hz=sample_rate_hz,
+        channels=["Dev1/ai0"],
+    )
+    segment = read_vibration_segment(path)
+
+    result = analyze_segment(segment, top_peaks=5)
+    channel = result["channels"][0]
+
+    assert channel["basic"]["sample_count"] == len(time_s)
+    assert channel["basic"]["finite_ratio"] == pytest.approx((len(time_s) - 2) / len(time_s))
+    assert channel["frequency_domain"]["dominant_frequency_hz"] == pytest.approx(frequency_hz, abs=1.0)
+    assert channel["frequency_domain"]["spectral_peaks"][0]["frequency_hz"] == pytest.approx(frequency_hz, abs=1.0)
+    assert any("interpolated" in warning.lower() for warning in channel["warnings"])
+
+
+def test_constant_signal_has_no_fabricated_spectral_peak(tmp_path):
+    sample_rate_hz = 2048.0
+    values = np.full(2048, 3.5, dtype=float)
+    path = write_npz_xz_segment(
+        tmp_path / "constant.npz.xz",
+        data=values[None, :],
+        sample_rate_hz=sample_rate_hz,
+        channels=["Dev1/ai0"],
+    )
+    segment = read_vibration_segment(path)
+
+    result = analyze_segment(segment, top_peaks=5)
+    channel = result["channels"][0]
+
+    assert channel["basic"]["near_constant"] is True
+    assert channel["frequency_domain"]["spectral_peaks"] == []
+    assert channel["frequency_domain"]["dominant_frequency_hz"] == 0.0
+    assert any("near constant" in note.lower() for note in channel["analysis_notes"])
 
 
 def test_segment_analysis_uses_all_channels_by_default(tmp_path):
