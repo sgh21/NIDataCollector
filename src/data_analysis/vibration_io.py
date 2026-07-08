@@ -45,8 +45,8 @@ def read_vibration_segment(path: Path | str) -> VibrationSegment:
 
     try:
         with lzma.open(segment_path, "rb") as handle:
-            loaded = np.load(handle, allow_pickle=False)
-            payload: dict[str, Any] = {name: loaded[name] for name in loaded.files}
+            with np.load(handle, allow_pickle=False) as loaded:
+                payload: dict[str, Any] = {name: loaded[name] for name in loaded.files}
     except Exception as exc:
         raise VibrationPayloadError(f"failed to read .npz.xz payload: {segment_path}: {exc}") from exc
 
@@ -56,7 +56,10 @@ def read_vibration_segment(path: Path | str) -> VibrationSegment:
 
     time_s = np.asarray(payload["time_s"], dtype=np.float64)
     data = np.asarray(payload["data"], dtype=np.float64)
-    channels = tuple(str(value) for value in np.asarray(payload["channels"]).astype(str).tolist())
+    raw_channels = np.asarray(payload["channels"])
+    if raw_channels.ndim != 1:
+        raise VibrationPayloadError(f"channels must be 1D, got shape {raw_channels.shape}")
+    channels = tuple(str(value) for value in raw_channels.astype(str).tolist())
     sample_start_index = int(np.asarray(payload["sample_start_index"]).item())
     sample_rate_hz = float(np.asarray(payload["sample_rate_hz"]).item())
     signal_type = str(np.asarray(payload["signal_type"]).item())
