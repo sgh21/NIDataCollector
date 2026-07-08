@@ -1,3 +1,5 @@
+import json
+
 import numpy as np
 import pytest
 
@@ -29,6 +31,29 @@ def test_sine_wave_features_match_known_frequency_and_rms(tmp_path):
     assert channel["time_domain"]["rms"] == pytest.approx(2 ** -0.5, rel=0.02)
     assert channel["time_domain"]["peak_abs"] == pytest.approx(1.0, rel=0.02)
     assert channel["frequency_domain"]["spectral_peaks"][0]["frequency_hz"] == pytest.approx(frequency_hz, abs=1.0)
+    assert channel["frequency_domain"]["bands"]
+    assert set(channel["envelope"]).issuperset({"rms", "kurtosis", "spectral_peaks"})
+    json.dumps(result)
+
+
+def test_top_peaks_zero_still_reports_dominant_frequency(tmp_path):
+    sample_rate_hz = 4096.0
+    time_s = np.arange(4096) / sample_rate_hz
+    frequency_hz = 96.0
+    data = np.sin(2.0 * np.pi * frequency_hz * time_s)[None, :]
+    path = write_npz_xz_segment(
+        tmp_path / "zero-peaks.npz.xz",
+        data=data,
+        sample_rate_hz=sample_rate_hz,
+        channels=["Dev1/ai0"],
+    )
+    segment = read_vibration_segment(path)
+
+    result = analyze_segment(segment, top_peaks=0)
+    channel = result["channels"][0]
+
+    assert channel["frequency_domain"]["dominant_frequency_hz"] == pytest.approx(frequency_hz, abs=1.0)
+    assert channel["frequency_domain"]["spectral_peaks"] == []
 
 
 def test_rpm_adds_order_to_spectral_peaks(tmp_path):
@@ -69,3 +94,50 @@ def test_impulse_signal_emits_neutral_notes(tmp_path):
     assert "crest factor" in notes or "kurtosis" in notes
     assert "bearing fault" not in notes.lower()
     assert "imbalance" not in notes.lower()
+
+
+def test_non_finite_input_warns_and_analyzes_finite_values(tmp_path):
+    sample_rate_hz = 2048.0
+    time_s = np.arange(8) / sample_rate_hz
+    values = np.array([1.0, np.nan, 2.0, np.inf, 3.0, -np.inf, 4.0, 5.0], dtype=float)
+    path = write_npz_xz_segment(
+        tmp_path / "nonfinite.npz.xz",
+        data=values[None, :],
+        sample_rate_hz=sample_rate_hz,
+        channels=["Dev1/ai0"],
+    )
+    segment = read_vibration_segment(path)
+
+    result = analyze_segment(segment, top_peaks=3)
+    channel = result["channels"][0]
+    finite_values = np.array([1.0, 2.0, 3.0, 4.0, 5.0], dtype=float)
+
+    assert any("non-finite values removed" in warning for warning in channel["warnings"])
+    assert channel["basic"]["finite_ratio"] == pytest.approx(5 / 8)
+    assert channel["time_domain"]["rms"] == pytest.approx(np.sqrt(np.mean(finite_values**2)))
+    assert channel["frequency_domain"]["bands"]
+    assert channel["envelope"]["rms"] > 0.0
+
+
+def test_segment_analysis_uses_all_channels_by_default(tmp_path):
+    sample_rate_hz = 1024.0
+    time_s = np.arange(1024) / sample_rate_hz
+    data = np.vstack(
+        [
+            np.sin(2.0 * np.pi * 32.0 * time_s),
+            np.sin(2.0 * np.pi * 64.0 * time_s),
+        ]
+    )
+    path = write_npz_xz_segment(
+        tmp_path / "multi-channel.npz.xz",
+        data=data,
+        sample_rate_hz=sample_rate_hz,
+        channels=["Dev1/ai0", "Dev1/ai1"],
+    )
+    segment = read_vibration_segment(path)
+
+    result = analyze_segment(segment, top_peaks=3)
+
+    assert result["selected_channels"] == ["Dev1/ai0", "Dev1/ai1"]
+    assert len(result["channels"]) == 2
+    assert {channel["channel"] for channel in result["channels"]} == {"Dev1/ai0", "Dev1/ai1"}

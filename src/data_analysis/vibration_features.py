@@ -159,6 +159,13 @@ def _frequency_features(values: np.ndarray, sample_rate_hz: float, rpm: float | 
     amplitudes = (2.0 / max(np.sum(np.hanning(n)), 1e-12)) * np.abs(np.fft.rfft(windowed))
     if amplitudes.size:
         amplitudes[0] = amplitudes[0] / 2.0
+    dominant_frequency_hz = 0.0
+    if amplitudes.size:
+        if amplitudes.size > 1 and np.any(amplitudes[1:] > 0):
+            dominant_index = int(np.argmax(amplitudes[1:]) + 1)
+        else:
+            dominant_index = int(np.argmax(amplitudes))
+        dominant_frequency_hz = float(frequencies[dominant_index])
     peak_rows = _top_peaks(frequencies, amplitudes, top_peaks, rpm)
     psd_freq, psd_values = signal.welch(values, fs=sample_rate_hz, nperseg=min(4096, n))
     power_sum = float(np.sum(amplitudes))
@@ -171,14 +178,14 @@ def _frequency_features(values: np.ndarray, sample_rate_hz: float, rpm: float | 
     cumulative = np.cumsum(amplitudes)
     rolloff_index = int(np.searchsorted(cumulative, 0.85 * cumulative[-1])) if cumulative.size and cumulative[-1] > 0 else 0
     return {
-        "dominant_frequency_hz": float(peak_rows[0]["frequency_hz"]) if peak_rows else 0.0,
+        "dominant_frequency_hz": dominant_frequency_hz,
         "spectral_peaks": peak_rows,
         "spectral_centroid_hz": centroid,
         "spectral_bandwidth_hz": bandwidth,
         "spectral_rolloff_hz": float(frequencies[min(rolloff_index, len(frequencies) - 1)]) if frequencies.size else 0.0,
         "bands": _band_features(frequencies, amplitudes, sample_rate_hz),
-        "_spectrum": {"frequency_hz": frequencies, "amplitude": amplitudes},
-        "_psd": {"frequency_hz": psd_freq, "power": psd_values},
+        "_spectrum": {"frequency_hz": frequencies.tolist(), "amplitude": amplitudes.tolist()},
+        "_psd": {"frequency_hz": psd_freq.tolist(), "power": psd_values.tolist()},
     }
 
 
@@ -194,7 +201,7 @@ def _envelope_features(values: np.ndarray, sample_rate_hz: float, rpm: float | N
         "rms": float(np.sqrt(np.mean(envelope**2))),
         "kurtosis": float(stats.kurtosis(envelope, fisher=False, bias=False)) if envelope.size > 3 else 0.0,
         "spectral_peaks": peaks,
-        "_spectrum": {"frequency_hz": frequencies, "amplitude": amplitudes},
+        "_spectrum": {"frequency_hz": frequencies.tolist(), "amplitude": amplitudes.tolist()},
     }
 
 
@@ -225,7 +232,11 @@ def _band_features(frequencies: np.ndarray, amplitudes: np.ndarray, sample_rate_
         clipped_high = min(high, nyquist)
         if clipped_high <= clipped_low:
             continue
-        mask = (frequencies >= clipped_low) & (frequencies < clipped_high)
+        is_final_band = np.isclose(clipped_high, nyquist)
+        if is_final_band:
+            mask = (frequencies >= clipped_low) & (frequencies <= clipped_high)
+        else:
+            mask = (frequencies >= clipped_low) & (frequencies < clipped_high)
         energy = float(np.sum(amplitudes[mask] ** 2))
         rows.append(
             {
