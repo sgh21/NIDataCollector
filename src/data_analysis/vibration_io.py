@@ -59,9 +59,19 @@ def read_vibration_segment(path: Path | str) -> VibrationSegment:
     raw_channels = np.asarray(payload["channels"])
     if raw_channels.ndim != 1:
         raise VibrationPayloadError(f"channels must be 1D, got shape {raw_channels.shape}")
+    if raw_channels.dtype.kind not in {"U", "S", "O"}:
+        raise VibrationPayloadError(
+            f"channels must be a 1-D string-like array, got dtype {raw_channels.dtype!r}"
+        )
+    if raw_channels.dtype.kind == "O":
+        is_string_like = np.vectorize(lambda value: isinstance(value, (str, bytes, np.str_, np.bytes_)))(raw_channels)
+        if not bool(np.all(is_string_like)):
+            raise VibrationPayloadError("channels must contain string-like values")
     channels = tuple(str(value) for value in raw_channels.astype(str).tolist())
     sample_start_index = int(np.asarray(payload["sample_start_index"]).item())
     sample_rate_hz = float(np.asarray(payload["sample_rate_hz"]).item())
+    if not np.isfinite(sample_rate_hz):
+        raise VibrationPayloadError(f"sample_rate_hz must be finite, got {sample_rate_hz!r}")
     signal_type = str(np.asarray(payload["signal_type"]).item())
     unit = str(np.asarray(payload["unit"]).item())
 

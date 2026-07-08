@@ -124,3 +124,44 @@ def test_channels_must_be_1d(tmp_path):
 
     with pytest.raises(VibrationPayloadError, match="channels must be 1D"):
         read_vibration_segment(path)
+
+
+def test_channels_must_be_string_like(tmp_path):
+    path = tmp_path / "bad_channels_numeric.npz.xz"
+    buffer = io.BytesIO()
+    np.savez(
+        buffer,
+        time_s=np.array([0.0, 0.001]),
+        data=np.array([[1.0, 2.0]]),
+        channels=np.array([1, 2]),
+        sample_start_index=np.asarray(0),
+        sample_rate_hz=np.asarray(1000.0),
+        signal_type=np.asarray("acceleration"),
+        unit=np.asarray("g"),
+    )
+    with lzma.open(path, "wb") as handle:
+        handle.write(buffer.getvalue())
+
+    with pytest.raises(VibrationPayloadError, match="channels.*string"):
+        read_vibration_segment(path)
+
+
+@pytest.mark.parametrize("sample_rate", [np.nan, np.inf, -np.inf])
+def test_sample_rate_hz_must_be_finite(tmp_path, sample_rate):
+    path = tmp_path / "bad_rate.npz.xz"
+    buffer = io.BytesIO()
+    np.savez(
+        buffer,
+        time_s=np.array([0.0, 0.001]),
+        data=np.array([[1.0, 2.0]]),
+        channels=np.array(["Dev1/ai0"]),
+        sample_start_index=np.asarray(0),
+        sample_rate_hz=np.asarray(sample_rate),
+        signal_type=np.asarray("acceleration"),
+        unit=np.asarray("g"),
+    )
+    with lzma.open(path, "wb") as handle:
+        handle.write(buffer.getvalue())
+
+    with pytest.raises(VibrationPayloadError, match="sample_rate_hz must be finite"):
+        read_vibration_segment(path)
