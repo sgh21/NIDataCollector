@@ -44,9 +44,10 @@ E:\software\conda\envs\NI\python.exe scripts\run_monitor.py --self-test
 
 ## Configuration
 
+- `config/app_startup.json`: startup UI defaults for output folder, vibration settings, common temperature acquisition settings, plot windows/Y ranges, NTC alert threshold, spindle default target speed, device config paths, and per-channel metadata defaults.
 - `config/temperature_card.json`: DAMX-8013 COM port, Modbus settings, NTC R/B values.
 - `config/spindle_control.json`: spindle COM port, protocol addresses, polling and safety limits.
-- Temperature sample rate, segment length, and temperature range are set in the UI and apply to both RTD and NTC channels.
+- Temperature sample rate, segment length, and temperature range initialize from `app_startup.json`, are set in the UI, and apply to both RTD and NTC channels.
 - RTD-only settings in the UI are labeled with `RTD`: excitation current, R0, type, and wiring.
 
 ## Recording Model
@@ -60,7 +61,9 @@ Runs are written under `data/runs/run_YYYYMMDD_HHMMSS/` and include:
 - `spindle_info.csv`
 - `sensor_info.csv`
 - `segment_records.csv`
-- per-signal CSV/JSON segment files
+- compressed per-signal `.npz.xz` segment files with `time_s`, `data`, channel names, sample rate, signal type, and unit
+- `segment_summary.csv` with fixed 1Hz trend features
+- `trends/summary_overview.png` generated from the summary CSV
 - optional `spindle_telemetry.csv/json` when the spindle is connected
 
 ## Hardware Independence

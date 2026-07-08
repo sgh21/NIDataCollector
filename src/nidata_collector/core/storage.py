@@ -2,16 +2,25 @@ from __future__ import annotations
 
 import csv
 import json
+import lzma
 import os
 import threading
 from dataclasses import asdict
 from datetime import datetime
+from io import BytesIO
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 
 from ..config import AcquisitionGroup, ChannelSelection, RunConfiguration, SignalType
+
+
+STORAGE_FORMAT = "npz_xz_float64_with_time"
+SEGMENT_SUMMARY_FILE = "segment_summary.csv"
+TRENDS_DIR = "trends"
+SUMMARY_WINDOW_SECONDS = 1.0
+TREND_OVERVIEW_FILE = "summary_overview.png"
 
 
 def safe_name(value: str) -> str:
@@ -61,6 +70,21 @@ class RunStorage:
                 "sample_index / configured_sample_rate_hz; NI groups use DAQmx hardware-timed "
                 "samples, DAMX-8013 NTC groups use serial poll count"
             ),
+            "storage_format": STORAGE_FORMAT,
+            "raw_segment_file": {
+                "extension": ".npz.xz",
+                "compression": "lzma/xz",
+                "arrays": {
+                    "time_s": "float64 array, shape=(sample_count,)",
+                    "data": "float64 array, shape=(channel_count, sample_count)",
+                    "channels": "string array aligned to data axis 0",
+                    "sample_start_index": "int64 scalar array",
+                    "sample_rate_hz": "float64 scalar array",
+                    "signal_type": "string scalar array",
+                    "unit": "string scalar array",
+                },
+                "alignment": "time_s[i] corresponds to data[:, i].",
+            },
             "output_dir": str(self.run_dir),
             "configuration": to_jsonable(config),
             "device_snapshot": to_jsonable(device_snapshot),
@@ -105,10 +129,16 @@ class RunStorage:
         sample_count: int,
         sample_start_index: int,
         partial: bool,
-        csv_path: Path,
-        json_path: Path,
+        data_path: Path,
     ) -> dict[str, Any]:
         base = run_record_row(self.run_id, self.config)
+        time_start_s = sample_start_index / sample_rate_hz if sample_rate_hz else ""
+        time_end_s = (sample_start_index + sample_count) / sample_rate_hz if sample_rate_hz and sample_count else ""
+        time_center_s = (
+            (float(time_start_s) + float(time_end_s)) / 2.0
+            if time_start_s != "" and time_end_s != ""
+            else ""
+        )
         base.update(
             {
                 "signal_type": group.signal_type.value,
@@ -118,11 +148,14 @@ class RunStorage:
                 "sample_count": sample_count,
                 "sample_duration_s": sample_count / sample_rate_hz if sample_rate_hz else "",
                 "sample_start_index": sample_start_index,
+                "sample_end_index": sample_start_index + sample_count - 1 if sample_count else sample_start_index,
+                "time_start_s": time_start_s,
+                "time_center_s": time_center_s,
+                "time_end_s": time_end_s,
                 "partial": partial,
-                "data_file": csv_path.name,
-                "metadata_file": json_path.name,
-                "data_path": str(csv_path),
-                "metadata_path": str(json_path),
+                "data_format": STORAGE_FORMAT,
+                "data_file": data_path.name,
+                "data_path": str(data_path),
             }
         )
         return base
@@ -150,12 +183,11 @@ class SegmentWriter:
         time_s: np.ndarray,
         data: np.ndarray,
         partial: bool = False,
-    ) -> tuple[Path, Path] | None:
+    ) -> Path | None:
         if not self.save_channels:
             return None
 
         self.segment_index += 1
-        settings = self.group.settings
         tag = "partial" if partial else "segment"
         base = (
             f"{self.segment_index:06d}_{tag}_"
@@ -164,11 +196,19 @@ class SegmentWriter:
             f"{data.shape[1]}samples_"
             f"start{sample_start_index}"
         )
-        csv_path = self.root / f"{safe_name(base)}.csv"
-        json_path = self.root / f"{safe_name(base)}.json"
+        data_path = self.root / f"{safe_name(base)}.npz.xz"
 
         selected = data[self.save_indices, :]
-        write_segment_csv(csv_path, sample_start_index, time_s, selected, self.save_channels)
+        write_segment_npz_xz(
+            data_path,
+            time_s,
+            selected,
+            self.save_channels,
+            sample_start_index,
+            sample_rate_hz,
+            self.group.signal_type.value,
+            self.group.signal_type.unit,
+        )
         segment_record = self.run_storage.build_segment_record(
             self.group,
             self.save_channels,
@@ -177,51 +217,64 @@ class SegmentWriter:
             int(selected.shape[1]),
             sample_start_index,
             partial,
-            csv_path,
-            json_path,
+            data_path,
         )
-        metadata = {
-            "segment_index": self.segment_index,
-            "partial": partial,
-            "signal_type": self.group.signal_type.value,
-            "unit": self.group.signal_type.unit,
-            "channels": self.save_channels,
-            "sample_start_index": sample_start_index,
-            "sample_count": int(selected.shape[1]),
-            "sample_rate_hz": sample_rate_hz,
-            "time_axis": time_axis_description(self.group),
-            "settings": to_jsonable(settings),
-            "experiment_record": to_jsonable(self.run_storage.config.experiment_record),
-            "segment_record": to_jsonable(segment_record),
-            "stats": segment_stats(selected, self.save_channels, self.group.signal_type.unit),
-        }
-        atomic_write_json(json_path, metadata)
+        segment_record["segment_index"] = self.segment_index
         self.run_storage.append_segment_record(segment_record)
-        return csv_path, json_path
+        return data_path
 
 
-def time_axis_description(group: AcquisitionGroup) -> str:
-    if group.signal_type == SignalType.TEMPERATURE_NTC:
-        return "time_s = sample_index / sample_rate_hz from DAMX-8013 serial poll count"
-    return "time_s = sample_index / sample_rate_hz from DAQmx hardware-timed samples"
-
-
-def write_segment_csv(
+def write_segment_npz_xz(
     path: Path,
-    sample_start_index: int,
     time_s: np.ndarray,
     data: np.ndarray,
     channels: list[str],
+    sample_start_index: int,
+    sample_rate_hz: float,
+    signal_type: str,
+    unit: str,
 ) -> None:
-    tmp_path = path.with_suffix(path.suffix + ".tmp")
-    header = ["sample_index", "time_s", *channels]
-    with tmp_path.open("w", newline="", encoding="utf-8") as handle:
-        writer = csv.writer(handle)
-        writer.writerow(header)
-        for column in range(data.shape[1]):
-            sample_index = sample_start_index + column
-            writer.writerow([sample_index, time_s[column], *data[:, column]])
+    if data.ndim != 2:
+        raise ValueError("segment data must be a 2D array shaped (channel_count, sample_count).")
+    time_values = np.asarray(time_s, dtype=np.float64)
+    data_values = np.asarray(data, dtype=np.float64)
+    if time_values.shape[0] != data_values.shape[1]:
+        raise ValueError("time_s length must match data sample count.")
+    if len(channels) != data_values.shape[0]:
+        raise ValueError("channel count must match data channel axis.")
+
+    buffer = BytesIO()
+    np.savez(
+        buffer,
+        time_s=time_values,
+        data=data_values,
+        channels=np.asarray(channels, dtype=np.str_),
+        sample_start_index=np.asarray([sample_start_index], dtype=np.int64),
+        sample_rate_hz=np.asarray([sample_rate_hz], dtype=np.float64),
+        signal_type=np.asarray([signal_type], dtype=np.str_),
+        unit=np.asarray([unit], dtype=np.str_),
+    )
+
+    tmp_path = Path(str(path) + ".tmp")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with lzma.open(tmp_path, "wb", preset=6) as handle:
+        handle.write(buffer.getvalue())
     os.replace(tmp_path, path)
+
+
+def read_segment_npz_xz(path: Path) -> dict[str, np.ndarray]:
+    with lzma.open(path, "rb") as handle:
+        payload_bytes = handle.read()
+    with np.load(BytesIO(payload_bytes), allow_pickle=False) as payload:
+        return {
+            "time_s": np.asarray(payload["time_s"], dtype=np.float64),
+            "data": np.asarray(payload["data"], dtype=np.float64),
+            "channels": np.asarray(payload["channels"], dtype=np.str_),
+            "sample_start_index": np.asarray(payload["sample_start_index"], dtype=np.int64),
+            "sample_rate_hz": np.asarray(payload["sample_rate_hz"], dtype=np.float64),
+            "signal_type": np.asarray(payload["signal_type"], dtype=np.str_),
+            "unit": np.asarray(payload["unit"], dtype=np.str_),
+        }
 
 
 def atomic_write_json(path: Path, payload: dict) -> None:
@@ -296,6 +349,7 @@ SENSOR_INFO_COLUMNS = [
 
 SEGMENT_RECORD_COLUMNS = [
     *EXPERIMENT_RECORD_COLUMNS,
+    "segment_index",
     "signal_type",
     "channels",
     "unit",
@@ -303,11 +357,14 @@ SEGMENT_RECORD_COLUMNS = [
     "sample_count",
     "sample_duration_s",
     "sample_start_index",
+    "sample_end_index",
+    "time_start_s",
+    "time_center_s",
+    "time_end_s",
     "partial",
+    "data_format",
     "data_file",
-    "metadata_file",
     "data_path",
-    "metadata_path",
 ]
 
 
@@ -403,19 +460,326 @@ def csv_row(row: dict[str, Any], columns: list[str]) -> dict[str, Any]:
     return {column: "" if row.get(column) is None else row.get(column, "") for column in columns}
 
 
-def segment_stats(data: np.ndarray, channels: list[str], unit: str) -> list[dict]:
+def read_dict_csv(path: Path) -> list[dict[str, str]]:
+    if not path.exists():
+        return []
+    with path.open("r", newline="", encoding="utf-8-sig") as handle:
+        return list(csv.DictReader(handle))
+
+
+def postprocess_run_outputs(run_dir: Path) -> dict[str, Any]:
+    run_dir = Path(run_dir)
+    segment_rows = read_dict_csv(run_dir / "segment_records.csv")
+    sensor_labels = load_sensor_labels(run_dir / "sensor_info.csv")
+    summary_rows: dict[tuple[float, float], dict[str, Any]] = {}
+    metric_columns: list[str] = []
+
+    for record in segment_rows:
+        if record.get("data_format") != STORAGE_FORMAT:
+            continue
+        raw_data_path = record.get("data_path") or ""
+        if not raw_data_path:
+            continue
+        data_path = Path(raw_data_path)
+        if not data_path.is_absolute():
+            data_path = run_dir / data_path
+        if not data_path.exists():
+            continue
+
+        payload = read_segment_npz_xz(data_path)
+        time_s = payload["time_s"]
+        data = payload["data"]
+        channels = [str(channel) for channel in payload["channels"].tolist()]
+        signal_type = SignalType(str(payload["signal_type"][0]))
+        for time_start_s, mask in iter_fixed_summary_windows(time_s):
+            row = summary_row_for_window(summary_rows, time_start_s)
+            window_data = data[:, mask]
+            for item in segment_summary_stats(signal_type, window_data, channels):
+                channel_label = safe_name(sensor_labels.get(item["channel"]) or item["channel"])
+                prefix = f"{signal_type.value}__{channel_label}"
+                for stat_name, value in item["stats"].items():
+                    column = f"{prefix}__{stat_name}"
+                    if column not in metric_columns:
+                        metric_columns.append(column)
+                    row[column] = value
+
+    append_spindle_summary(run_dir, summary_rows, metric_columns)
+    rows = sorted(summary_rows.values(), key=lambda item: float(item["time_start_s"]))
+    columns = ["time_start_s", "time_center_s", "time_end_s", *ordered_metric_columns(metric_columns)]
+    summary_path = run_dir / SEGMENT_SUMMARY_FILE
+    write_dict_csv(summary_path, rows, columns)
+    trend_paths = write_trend_plots(run_dir, rows, columns)
+    annotate_manifest_with_postprocess(run_dir, summary_path, trend_paths)
+    return {
+        "summary_csv": summary_path,
+        "trend_pngs": trend_paths,
+    }
+
+
+def iter_fixed_summary_windows(time_s: np.ndarray) -> list[tuple[float, np.ndarray]]:
+    time_values = np.asarray(time_s, dtype=np.float64)
+    valid = np.isfinite(time_values)
+    if not np.any(valid):
+        return []
+
+    starts = np.floor(time_values[valid] / SUMMARY_WINDOW_SECONDS) * SUMMARY_WINDOW_SECONDS
+    windows = []
+    for time_start_s in np.unique(starts):
+        time_end_s = float(time_start_s + SUMMARY_WINDOW_SECONDS)
+        mask = (time_values >= time_start_s) & (time_values < time_end_s)
+        if np.any(mask):
+            windows.append((float(time_start_s), mask))
+    return windows
+
+
+def summary_row_for_window(
+    summary_rows: dict[tuple[float, float], dict[str, Any]],
+    time_start_s: float,
+) -> dict[str, Any]:
+    time_end_s = time_start_s + SUMMARY_WINDOW_SECONDS
+    key = (round(time_start_s, 9), round(time_end_s, 9))
+    return summary_rows.setdefault(
+        key,
+        {
+            "time_start_s": time_start_s,
+            "time_center_s": time_start_s + SUMMARY_WINDOW_SECONDS / 2.0,
+            "time_end_s": time_end_s,
+        },
+    )
+
+
+def segment_summary_stats(signal_type: SignalType, data: np.ndarray, channels: list[str]) -> list[dict[str, Any]]:
     stats = []
     for index, channel in enumerate(channels):
-        values = data[index]
-        stats.append(
-            {
-                "channel": channel,
-                "unit": unit,
-                "mean": float(np.mean(values)),
-                "rms": float(np.sqrt(np.mean(np.square(values)))),
-                "min": float(np.min(values)),
+        values = np.asarray(data[index], dtype=np.float64)
+        values = values[np.isfinite(values)]
+        if not len(values):
+            continue
+        if signal_type == SignalType.ACCELERATION:
+            channel_stats = {
+                "mean_abs": float(np.mean(np.abs(values))),
                 "max": float(np.max(values)),
-                "peak_to_peak": float(np.ptp(values)),
+                "min": float(np.min(values)),
             }
-        )
+        else:
+            channel_stats = {
+                "mean": float(np.mean(values)),
+                "max": float(np.max(values)),
+                "min": float(np.min(values)),
+            }
+        stats.append({"channel": channel, "stats": channel_stats})
     return stats
+
+
+def load_sensor_labels(path: Path) -> dict[str, str]:
+    labels = {}
+    for row in read_dict_csv(path):
+        channel = row.get("channel", "")
+        if not channel:
+            continue
+        sensor_id = row.get("sensor_id", "").strip()
+        labels[channel] = sensor_id or channel
+    return labels
+
+
+def append_spindle_summary(
+    run_dir: Path,
+    summary_rows: dict[tuple[float, float], dict[str, Any]],
+    metric_columns: list[str],
+) -> None:
+    telemetry_path = run_dir / "spindle_telemetry.csv"
+    telemetry_rows = read_dict_csv(telemetry_path)
+    if not telemetry_rows:
+        return
+
+    times = np.asarray([_float_or_default(row.get("time_s"), np.nan) for row in telemetry_rows], dtype=np.float64)
+    speeds = np.asarray(
+        [_float_or_default(row.get("actual_speed_rpm"), np.nan) for row in telemetry_rows],
+        dtype=np.float64,
+    )
+    currents = np.asarray([_float_or_default(row.get("current_a"), np.nan) for row in telemetry_rows], dtype=np.float64)
+    valid = np.isfinite(times)
+    times = times[valid]
+    speeds = speeds[valid]
+    currents = currents[valid]
+    if not len(times):
+        return
+
+    for start in np.unique(np.floor(times / SUMMARY_WINDOW_SECONDS) * SUMMARY_WINDOW_SECONDS):
+        row = summary_row_for_window(summary_rows, float(start))
+        end = float(start + SUMMARY_WINDOW_SECONDS)
+        mask = (times >= start) & (times < end)
+        append_spindle_metric(row, metric_columns, "spindle_speed", speeds[mask])
+        append_spindle_metric(row, metric_columns, "spindle_current", currents[mask])
+
+
+def append_spindle_metric(
+    row: dict[str, Any],
+    metric_columns: list[str],
+    prefix: str,
+    values: np.ndarray,
+) -> None:
+    values = values[np.isfinite(values)]
+    if not len(values):
+        return
+    for stat_name, value in (
+        ("mean", float(np.mean(values))),
+        ("max", float(np.max(values))),
+        ("min", float(np.min(values))),
+    ):
+        column = f"{prefix}__{stat_name}"
+        if column not in metric_columns:
+            metric_columns.append(column)
+        row[column] = value
+
+
+def ordered_metric_columns(columns: list[str]) -> list[str]:
+    return sorted(columns, key=metric_column_sort_key)
+
+
+def metric_column_sort_key(column: str) -> tuple[int, str, int, str]:
+    parts = column.split("__")
+    channel = parts[1] if len(parts) > 2 else ""
+    stat = parts[-1] if len(parts) > 1 else ""
+    stat_rank = {"mean_abs": 0, "mean": 0, "max": 1, "min": 2}.get(stat, 9)
+    if column.startswith("acceleration__"):
+        return (0, channel, stat_rank, column)
+    if column.startswith("temperature_ntc__"):
+        return (1, channel, stat_rank, column)
+    if column.startswith("temperature_rtd__"):
+        return (2, channel, stat_rank, column)
+    if column.startswith("spindle_speed__"):
+        return (3, channel, stat_rank, column)
+    if column.startswith("spindle_current__"):
+        return (4, channel, stat_rank, column)
+    return (9, channel, stat_rank, column)
+
+
+def write_trend_plots(run_dir: Path, rows: list[dict[str, Any]], columns: list[str]) -> list[Path]:
+    if not rows:
+        return []
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    trend_dir = run_dir / TRENDS_DIR
+    trend_dir.mkdir(parents=True, exist_ok=True)
+    x = np.asarray([float(row["time_center_s"]) for row in rows], dtype=np.float64)
+    fig, axes = plt.subplots(4, 1, figsize=(12, 11), dpi=130, sharex=True)
+
+    plot_summary_group(
+        axes[0],
+        rows,
+        x,
+        [column for column in columns if column.startswith("acceleration__") and column.endswith("__mean_abs")],
+        "Vibration mean_abs",
+        "g",
+    )
+    plot_summary_group(
+        axes[1],
+        rows,
+        x,
+        temperature_trend_columns(columns),
+        "Temperature mean",
+        "degC",
+    )
+    plot_summary_group(
+        axes[2],
+        rows,
+        x,
+        ["spindle_speed__mean"],
+        "Spindle speed mean",
+        "rpm",
+    )
+    plot_summary_group(
+        axes[3],
+        rows,
+        x,
+        ["spindle_current__mean"],
+        "Spindle current mean",
+        "A",
+    )
+
+    axes[-1].set_xlabel("Time center (s)")
+    fig.tight_layout()
+    path = trend_dir / TREND_OVERVIEW_FILE
+    fig.savefig(path)
+    plt.close(fig)
+    return [path]
+
+
+def plot_summary_group(
+    ax: Any,
+    rows: list[dict[str, Any]],
+    x: np.ndarray,
+    columns: list[str],
+    title: str,
+    ylabel: str,
+) -> None:
+    plotted = False
+    for column in columns:
+        y_values = np.asarray([_float_or_default(row.get(column), np.nan) for row in rows], dtype=np.float64)
+        valid = np.isfinite(x) & np.isfinite(y_values)
+        if not np.any(valid):
+            continue
+        ax.plot(x[valid], y_values[valid], linewidth=1.8, label=trend_label(column))
+        plotted = True
+    ax.set_title(title)
+    ax.set_ylabel(ylabel)
+    ax.grid(True, alpha=0.25)
+    if plotted:
+        ax.legend(loc="best", fontsize="small")
+    else:
+        ax.text(0.5, 0.5, "No data", transform=ax.transAxes, ha="center", va="center")
+
+
+def temperature_trend_columns(columns: list[str]) -> list[str]:
+    return sorted(
+        [column for column in columns if column.startswith("temperature_") and column.endswith("__mean")],
+        key=temperature_column_sort_key,
+    )
+
+
+def temperature_column_sort_key(column: str) -> tuple[int, str]:
+    if column.startswith("temperature_ntc__"):
+        return (0, column)
+    if column.startswith("temperature_rtd__"):
+        return (1, column)
+    return (9, column)
+
+
+def trend_label(column: str) -> str:
+    if column == "spindle_speed__mean":
+        return "speed rpm"
+    if column == "spindle_current__mean":
+        return "current A"
+    parts = column.split("__")
+    if len(parts) >= 3:
+        return parts[1]
+    return column
+
+
+def annotate_manifest_with_postprocess(run_dir: Path, summary_path: Path, trend_paths: list[Path]) -> None:
+    manifest_path = run_dir / "manifest.json"
+    if not manifest_path.exists():
+        return
+    try:
+        payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except Exception:
+        return
+    payload["postprocess"] = {
+        "segment_summary_csv": summary_path.name,
+        "trends_dir": TRENDS_DIR,
+        "trend_pngs": [f"{TRENDS_DIR}/{path.name}" for path in trend_paths],
+    }
+    atomic_write_json(manifest_path, payload)
+
+
+def _float_or_default(value: Any, default: float) -> float:
+    if value in (None, ""):
+        return default
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default

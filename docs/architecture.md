@@ -24,10 +24,12 @@ src/nidata_collector/
     spindle.py
   ui/
     qt_app.py
+    startup_config.py
 scripts/
   run_monitor.py
   ni_probe.py
 config/
+  app_startup.json
   temperature_card.json
   spindle_control.json
 ```
@@ -56,11 +58,15 @@ Acquisition lifecycle. It starts workers, isolates device failures, routes live 
 
 `core/storage.py`
 
-Run folder and segment persistence. It writes manifests, experiment metadata, sensor metadata, segment CSV files, and JSON sidecars.
+Run folder, compressed raw segments, and postprocessing. It writes manifests, experiment metadata, sensor metadata, `.npz.xz` segment files, segment indexes, summary CSV files, and trend PNGs.
 
 `ui/qt_app.py`
 
 Qt desktop app. It builds the interface, reads user settings, calls the acquisition controller, displays live plots, and handles spindle controls. It does not implement low-level protocol parsing.
+
+`ui/startup_config.py`
+
+Startup default loader for the Qt app. It validates `config/app_startup.json` and keeps UI defaults separate from hardware protocol code.
 
 ## Device Isolation
 
@@ -85,13 +91,15 @@ Qt UI settings
 Trigger
   -> core.storage.RunStorage
   -> per-signal SegmentWriter
-  -> CSV/JSON files
+  -> compressed .npz.xz files
+  -> 1Hz segment_summary.csv and trends/summary_overview.png after stop
 ```
 
 ## Configuration Flow
 
+- `config/app_startup.json` stores startup UI defaults: output folder, vibration defaults, common temperature acquisition defaults, plot windows/Y ranges, temperature alert threshold, spindle default target speed, and device config paths.
 - `config/temperature_card.json` stores DAMX-8013 serial parameters and NTC R/B values.
-- The UI `Temperature` tab controls common temperature acquisition parameters: sample rate, segment length, min/max degC.
+- The UI `Temperature` tab controls common temperature acquisition parameters: sample rate, segment length, min/max degC. These values initialize from `app_startup.json` and apply to both RTD and NTC channels.
 - RTD-only parameters remain labeled as RTD-only.
 - `config/spindle_control.json` stores spindle serial/protocol/polling defaults.
 

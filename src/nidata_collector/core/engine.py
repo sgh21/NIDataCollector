@@ -131,8 +131,8 @@ class AsyncSegmentWriter:
                         AcquisitionEvent(
                             "saved",
                             group=self.group.signal_type.value,
-                            message=f"Saved {label}{result[0].name}",
-                            payload={"csv": str(result[0]), "json": str(result[1])},
+                            message=f"Saved {label}{result.name}",
+                            payload={"data": str(result)},
                         )
                     )
             except Exception as exc:

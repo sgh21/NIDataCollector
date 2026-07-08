@@ -8,6 +8,7 @@ import sys
 import time
 from collections import deque
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 
 import numpy as np
@@ -32,6 +33,7 @@ from ..config import (
     TemperatureRtdSettings,
 )
 from ..core.engine import AcquisitionController
+from ..core.storage import postprocess_run_outputs
 from ..hardware.ni import get_system_snapshot, reserve_network_devices, unreserve_network_devices
 from ..hardware.spindle import (
     SpindleConfig,
@@ -50,13 +52,27 @@ from ..hardware.damx8013 import (
     save_temperature_card_config,
     temperature_ntc_settings_from_config,
 )
+from .startup_config import (
+    ChannelSelectionStartupConfig,
+    StartupConfig,
+    default_startup_config,
+    load_startup_config,
+    resolve_startup_path,
+    save_channel_defaults,
+)
+from .standard_workflow import (
+    StandardWorkflowConfig,
+    StandardWorkflowRun,
+    build_standard_workflow_steps,
+    validate_standard_workflow_config,
+)
 
 
 ROOT = Path(__file__).resolve().parents[3]
-TEMPERATURE_CARD_CONFIG_PATH = ROOT / "config" / "temperature_card.json"
-SPINDLE_CONFIG_PATH = ROOT / "config" / "spindle_control.json"
+STARTUP_CONFIG_PATH = ROOT / "config" / "app_startup.json"
 EVENT_POLL_INTERVAL_MS = 10
 PLOT_REDRAW_INTERVAL_MS = 16
+STANDARD_WORKFLOW_INTERVAL_MS = 250
 DISPLAY_MAX_POINTS_PER_CURVE = 4096
 DEFAULT_Y_RANGES = {
     SignalType.ACCELERATION: (-0.1, 0.1),
@@ -76,7 +92,22 @@ class DataCollectorQtApp(QtWidgets.QMainWindow):
 
         pg.setConfigOptions(antialias=False)
         self.controller = AcquisitionController()
+        self.startup_config, self.startup_config_error = self._load_initial_startup_config()
+        self.temperature_card_config_path = resolve_startup_path(
+            ROOT,
+            self.startup_config.temperature.ntc.config_path,
+        )
+        self.spindle_config_path = resolve_startup_path(
+            ROOT,
+            self.startup_config.spindle.config_path,
+        )
         self.channel_rows: list[ChannelRowWidget] = []
+        self.channel_metadata_defaults: dict[str, SensorMetadata] = dict(
+            self.startup_config.channel_metadata
+        )
+        self.channel_selection_defaults: dict[str, ChannelSelectionStartupConfig] = dict(
+            self.startup_config.channel_selection
+        )
         self.plot_buffers: dict[SignalType, dict[str, PlotBuffer]] = {
             signal_type: {} for signal_type in PLOT_SIGNAL_TYPES
         }
@@ -105,9 +136,17 @@ class DataCollectorQtApp(QtWidgets.QMainWindow):
         self.latest_spindle_reading: SpindleReading | None = None
         self.spindle_keepalive_enabled = False
         self.spindle_recorder: SpindleTelemetryRecorder | None = None
+        self.standard_workflow_run: StandardWorkflowRun | None = None
+        self.standard_workflow_run_dir: Path | None = None
+        self.standard_workflow_pending_config: StandardWorkflowConfig | None = None
+        self.standard_workflow_waiting_for_settle = False
+        self.standard_workflow_started_at_local = ""
+        self.standard_workflow_finished_at_local = ""
 
         self._build_ui()
         self._connect_setting_sync()
+        if self.startup_config_error:
+            self._log(self.startup_config_error)
         if self.temperature_card_config_error:
             self._log(self.temperature_card_config_error)
         if self.spindle_config_error:
@@ -121,18 +160,28 @@ class DataCollectorQtApp(QtWidgets.QMainWindow):
         self.plot_timer.timeout.connect(self._redraw_plots)
         self.plot_timer.start(PLOT_REDRAW_INTERVAL_MS)
 
+        self.standard_workflow_timer = QtCore.QTimer(self)
+        self.standard_workflow_timer.timeout.connect(self._poll_standard_workflow)
+        self.standard_workflow_timer.setInterval(STANDARD_WORKFLOW_INTERVAL_MS)
+
         if initial_refresh:
             self.refresh_devices()
 
+    def _load_initial_startup_config(self) -> tuple[StartupConfig, str]:
+        try:
+            return load_startup_config(STARTUP_CONFIG_PATH), ""
+        except Exception as exc:
+            return default_startup_config(), f"Startup config skipped: {type(exc).__name__}: {exc}"
+
     def _load_initial_spindle_config(self) -> tuple[SpindleConfig, str]:
         try:
-            return load_spindle_config(SPINDLE_CONFIG_PATH), ""
+            return load_spindle_config(self.spindle_config_path), ""
         except Exception as exc:
             return default_spindle_config(), f"Spindle config skipped: {type(exc).__name__}: {exc}"
 
     def _load_initial_temperature_card_config(self) -> tuple[Damx8013Config, str]:
         try:
-            return load_temperature_card_config(TEMPERATURE_CARD_CONFIG_PATH), ""
+            return load_temperature_card_config(self.temperature_card_config_path), ""
         except Exception as exc:
             return Damx8013Config(), f"DAMX-8013 config skipped: {type(exc).__name__}: {exc}"
 
@@ -150,6 +199,8 @@ class DataCollectorQtApp(QtWidgets.QMainWindow):
             QPushButton#triggerButton { background: #1d4ed8; color: white; border-color: #1d4ed8; font-weight: 600; }
             QPushButton#triggerButton:disabled { background: #dbe4f0; color: #667085; border-color: #cbd5e1; }
             QPushButton#stopButton { background: #b42318; color: white; border-color: #b42318; font-weight: 600; }
+            QPushButton#emergencyButton { background: #991b1b; color: white; border-color: #991b1b; font-weight: 700; }
+            QPushButton#emergencyButton:disabled { background: #e5e7eb; color: #667085; border-color: #cbd5e1; }
             QLineEdit, QDoubleSpinBox, QSpinBox, QComboBox { padding: 4px; background: #ffffff; border: 1px solid #cbd5e1; border-radius: 4px; }
             QPlainTextEdit { background: #0f172a; color: #e5e7eb; border: 0; border-radius: 4px; font-family: Consolas; }
             QTabWidget::pane { border: 1px solid #e5e7eb; background: #ffffff; }
@@ -244,11 +295,13 @@ class DataCollectorQtApp(QtWidgets.QMainWindow):
 
         output_grid = QtWidgets.QGridLayout()
         output_grid.setColumnStretch(1, 1)
-        self.output_dir_edit = QtWidgets.QLineEdit(str(ROOT / "data" / "runs"))
+        output_dir = resolve_startup_path(ROOT, self.startup_config.output.run_dir)
+        self.output_dir_edit = QtWidgets.QLineEdit(str(output_dir))
         browse = QtWidgets.QPushButton("Browse")
         browse.clicked.connect(self._browse_output_dir)
         self.note_edit = QtWidgets.QLineEdit()
         self.override_checkbox = QtWidgets.QCheckBox("Override reservation")
+        self.override_checkbox.setChecked(self.startup_config.output.override_network_reservation)
         output_grid.addWidget(QtWidgets.QLabel("Folder"), 0, 0)
         output_grid.addWidget(self.output_dir_edit, 0, 1)
         output_grid.addWidget(browse, 0, 2)
@@ -261,6 +314,7 @@ class DataCollectorQtApp(QtWidgets.QMainWindow):
         self._build_vibration_settings(settings_tabs)
         self._build_temperature_settings(settings_tabs)
         self._build_spindle_settings(settings_tabs)
+        self._build_standard_flow_settings(settings_tabs)
         self._build_record_settings(settings_tabs)
         layout.addWidget(settings_tabs, stretch=1)
 
@@ -293,16 +347,23 @@ class DataCollectorQtApp(QtWidgets.QMainWindow):
         grid.setColumnStretch(1, 1)
         grid.setColumnStretch(3, 1)
 
-        self.accel_rate = self._double_spin(1, 200000, 5120, decimals=3)
-        self.accel_samples = self._int_spin(1, 50_000_000, 5120)
-        self.accel_seconds = self._double_spin(0.001, 86400, 1, decimals=6)
-        self.accel_min = self._double_spin(-100000, 100000, -50, decimals=3)
-        self.accel_max = self._double_spin(-100000, 100000, 50, decimals=3)
-        self.accel_sensitivity = self._double_spin(0.001, 1_000_000, 100, decimals=6)
-        self.accel_excitation = self._double_spin(0.0, 0.05, 0.004, decimals=6)
-        self.accel_settle = self._double_spin(0.0, 120, 5.0, decimals=3)
+        config = self.startup_config.vibration
+        self.accel_rate = self._double_spin(1, 200000, config.sample_rate_hz, decimals=3)
+        self.accel_samples = self._int_spin(1, 50_000_000, config.segment_samples)
+        self.accel_seconds = self._double_spin(0.001, 86400, config.segment_seconds, decimals=6)
+        self.accel_min = self._double_spin(-100000, 100000, config.min_g, decimals=3)
+        self.accel_max = self._double_spin(-100000, 100000, config.max_g, decimals=3)
+        self.accel_sensitivity = self._double_spin(
+            0.001,
+            1_000_000,
+            config.sensitivity_mv_per_g,
+            decimals=6,
+        )
+        self.accel_excitation = self._double_spin(0.0, 0.05, config.excitation_current_a, decimals=6)
+        self.accel_settle = self._double_spin(0.0, 120, config.settle_seconds, decimals=3)
         self.accel_coupling = QtWidgets.QComboBox()
         self.accel_coupling.addItems(["AC", "DC", "GND", "NONE"])
+        self._set_combo_text(self.accel_coupling, config.coupling.upper())
 
         fields = [
             ("Sample rate Hz", self.accel_rate),
@@ -324,18 +385,25 @@ class DataCollectorQtApp(QtWidgets.QMainWindow):
         grid.setColumnStretch(1, 1)
         grid.setColumnStretch(3, 1)
 
-        temp_config = self.temperature_card_config
-        self.temp_rate = self._double_spin(0.001, 1000, temp_config.sample_rate_hz, decimals=6)
-        self.temp_samples = self._int_spin(1, 50_000_000, temp_config.segment_samples)
-        self.temp_seconds = self._double_spin(0.001, 86400, temp_config.segment_seconds, decimals=6)
-        self.temp_min = self._double_spin(-273.15, 10000, temp_config.min_deg_c, decimals=3)
-        self.temp_max = self._double_spin(-273.15, 10000, temp_config.max_deg_c, decimals=3)
-        self.temp_excitation = self._double_spin(0.0, 0.05, 0.001, decimals=6)
-        self.temp_r0 = self._double_spin(0.001, 1_000_000, 100, decimals=6)
+        config = self.startup_config.temperature
+        self.temp_rate = self._double_spin(0.001, 1000, config.sample_rate_hz, decimals=6)
+        self.temp_samples = self._int_spin(1, 50_000_000, config.segment_samples)
+        self.temp_seconds = self._double_spin(0.001, 86400, config.segment_seconds, decimals=6)
+        self.temp_min = self._double_spin(-273.15, 10000, config.min_deg_c, decimals=3)
+        self.temp_max = self._double_spin(-273.15, 10000, config.max_deg_c, decimals=3)
+        self.temp_excitation = self._double_spin(
+            0.0,
+            0.05,
+            config.rtd.excitation_current_a,
+            decimals=6,
+        )
+        self.temp_r0 = self._double_spin(0.001, 1_000_000, config.rtd.r0_ohms, decimals=6)
         self.temp_rtd_type = QtWidgets.QComboBox()
         self.temp_rtd_type.addItems(["PT_3851", "PT_3750", "PT_3911", "PT_3916", "PT_3920", "PT_3928"])
+        self._set_combo_text(self.temp_rtd_type, config.rtd.type)
         self.temp_wire = QtWidgets.QComboBox()
         self.temp_wire.addItems(["FOUR_WIRE", "THREE_WIRE", "TWO_WIRE"])
+        self._set_combo_text(self.temp_wire, config.rtd.wiring)
 
         fields = [
             ("Sample rate Hz", self.temp_rate),
@@ -353,6 +421,7 @@ class DataCollectorQtApp(QtWidgets.QMainWindow):
 
     def _build_spindle_settings(self, tabs: QtWidgets.QTabWidget) -> None:
         config = self.spindle_config
+        startup = self.startup_config.spindle
         page = QtWidgets.QWidget()
         layout = QtWidgets.QVBoxLayout(page)
         layout.setContentsMargins(8, 8, 8, 8)
@@ -382,8 +451,9 @@ class DataCollectorQtApp(QtWidgets.QMainWindow):
 
         control_grid = QtWidgets.QGridLayout()
         control_grid.setColumnStretch(1, 1)
-        self.spindle_target_rpm = self._int_spin(0, config.safety.max_rpm, 500)
-        self.spindle_plot_window = self._double_spin(1, 3600, config.ui.plot_window_seconds, decimals=1)
+        target_rpm = min(startup.default_target_rpm, config.safety.max_rpm)
+        self.spindle_target_rpm = self._int_spin(0, config.safety.max_rpm, target_rpm)
+        self.spindle_plot_window = self._double_spin(1, 3600, startup.plot_window_s, decimals=1)
         self.spindle_set_button = QtWidgets.QPushButton("Set Speed")
         self.spindle_set_button.clicked.connect(self.set_spindle_speed)
         self.spindle_stop_button = QtWidgets.QPushButton("Stop Spindle")
@@ -420,6 +490,68 @@ class DataCollectorQtApp(QtWidgets.QMainWindow):
         layout.addStretch(1)
         tabs.addTab(page, "Spindle")
 
+    def _build_standard_flow_settings(self, tabs: QtWidgets.QTabWidget) -> None:
+        config = self.startup_config.standard_flow
+        max_rpm = self.spindle_config.safety.max_rpm
+        min_rpm = 1
+        page = QtWidgets.QWidget()
+        layout = QtWidgets.QVBoxLayout(page)
+        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setSpacing(10)
+
+        grid = QtWidgets.QGridLayout()
+        grid.setColumnStretch(1, 1)
+        grid.setColumnStretch(3, 1)
+        self.standard_start_rpm = self._int_spin(min_rpm, max_rpm, min(max(config.start_rpm, min_rpm), max_rpm))
+        self.standard_step_rpm = self._int_spin(1, max_rpm, min(max(1, config.step_rpm), max_rpm))
+        self.standard_max_rpm = self._int_spin(min_rpm, max_rpm, min(max(config.max_rpm, min_rpm), max_rpm))
+        self.standard_transition_hold = self._double_spin(0.1, 86400, config.transition_hold_s, decimals=1)
+        self.standard_max_hold = self._double_spin(0.1, 86400, config.max_hold_s, decimals=1)
+        fields = [
+            ("Start rpm", self.standard_start_rpm),
+            ("Step rpm", self.standard_step_rpm),
+            ("Max rpm", self.standard_max_rpm),
+            ("Transition hold s", self.standard_transition_hold),
+            ("Max hold s", self.standard_max_hold),
+        ]
+        self._add_form_fields(grid, fields)
+        layout.addLayout(grid)
+
+        controls = QtWidgets.QHBoxLayout()
+        self.standard_start_button = QtWidgets.QPushButton("Start Standard Run")
+        self.standard_start_button.setObjectName("startButton")
+        self.standard_start_button.clicked.connect(self.start_standard_workflow)
+        self.standard_emergency_button = QtWidgets.QPushButton("Emergency Stop")
+        self.standard_emergency_button.setObjectName("emergencyButton")
+        self.standard_emergency_button.setEnabled(False)
+        self.standard_emergency_button.clicked.connect(self.emergency_stop_standard_workflow)
+        controls.addWidget(self.standard_start_button)
+        controls.addWidget(self.standard_emergency_button)
+        controls.addStretch(1)
+        layout.addLayout(controls)
+
+        status_grid = QtWidgets.QGridLayout()
+        status_grid.setColumnStretch(1, 1)
+        self.standard_status_label = QtWidgets.QLabel("Idle")
+        self.standard_step_label = QtWidgets.QLabel("--")
+        self.standard_target_label = QtWidgets.QLabel("-- rpm")
+        self.standard_remaining_label = QtWidgets.QLabel("--")
+        self.standard_progress = QtWidgets.QProgressBar()
+        self.standard_progress.setRange(0, 1000)
+        self.standard_progress.setValue(0)
+        status_grid.addWidget(QtWidgets.QLabel("Status"), 0, 0)
+        status_grid.addWidget(self.standard_status_label, 0, 1)
+        status_grid.addWidget(QtWidgets.QLabel("Step"), 1, 0)
+        status_grid.addWidget(self.standard_step_label, 1, 1)
+        status_grid.addWidget(QtWidgets.QLabel("Target"), 2, 0)
+        status_grid.addWidget(self.standard_target_label, 2, 1)
+        status_grid.addWidget(QtWidgets.QLabel("Remaining"), 3, 0)
+        status_grid.addWidget(self.standard_remaining_label, 3, 1)
+        status_grid.addWidget(self.standard_progress, 4, 0, 1, 2)
+        layout.addLayout(status_grid)
+        layout.addStretch(1)
+        tabs.addTab(page, "Standard Flow")
+
     def _build_record_settings(self, tabs: QtWidgets.QTabWidget) -> None:
         page = QtWidgets.QWidget()
         layout = QtWidgets.QVBoxLayout(page)
@@ -432,7 +564,8 @@ class DataCollectorQtApp(QtWidgets.QMainWindow):
         content_layout.setContentsMargins(8, 8, 8, 8)
         content_layout.setSpacing(10)
 
-        self.spindle_id_edit = self._line_edit("SP01")
+        record_config = self.startup_config.record
+        self.spindle_id_edit = self._line_edit(record_config.spindle_id_placeholder)
         self.spindle_model_edit = self._line_edit()
         self.spindle_rated_speed_edit = self._line_edit("rpm")
         self.spindle_max_speed_edit = self._line_edit("rpm")
@@ -521,7 +654,7 @@ class DataCollectorQtApp(QtWidgets.QMainWindow):
         self.rotation_accuracy_value_edit = self._line_edit()
         self.rotation_accuracy_position_edit = self._line_edit()
         self.rotation_accuracy_condition_edit = self._line_edit()
-        self.sample_label_edit = self._line_edit("normal_baseline")
+        self.sample_label_edit = self._line_edit(record_config.sample_label_placeholder)
         content_layout.addWidget(
             self._metadata_section(
                 "Follow-up label",
@@ -549,13 +682,15 @@ class DataCollectorQtApp(QtWidgets.QMainWindow):
         toolbar = QtWidgets.QGridLayout()
         title = QtWidgets.QLabel("Live plot")
         title.setObjectName("title")
-        self.accel_plot_window = self._double_spin(0.25, 3600, 10, decimals=3)
-        self.accel_plot_min = self._double_spin(-100000, 100000, -0.1, decimals=3)
-        self.accel_plot_max = self._double_spin(-100000, 100000, 0.1, decimals=3)
-        self.temp_plot_window = self._double_spin(1, 86400, 120, decimals=3)
-        self.temp_plot_min = self._double_spin(-273.15, 10000, 10, decimals=3)
-        self.temp_plot_max = self._double_spin(-273.15, 10000, 50, decimals=3)
-        self.temp_alert_threshold = self._double_spin(-273.15, 10000, 80, decimals=1)
+        vibration = self.startup_config.vibration
+        temperature = self.startup_config.temperature
+        self.accel_plot_window = self._double_spin(0.25, 3600, vibration.plot_window_s, decimals=3)
+        self.accel_plot_min = self._double_spin(-100000, 100000, vibration.plot_min_g, decimals=3)
+        self.accel_plot_max = self._double_spin(-100000, 100000, vibration.plot_max_g, decimals=3)
+        self.temp_plot_window = self._double_spin(1, 86400, temperature.plot_window_s, decimals=3)
+        self.temp_plot_min = self._double_spin(-273.15, 10000, temperature.plot_min_deg_c, decimals=3)
+        self.temp_plot_max = self._double_spin(-273.15, 10000, temperature.plot_max_deg_c, decimals=3)
+        self.temp_alert_threshold = self._double_spin(-273.15, 10000, temperature.alert_deg_c, decimals=1)
         self.current_temp_label = QtWidgets.QLabel("Temp -- degC")
         self.current_temp_label.setObjectName("tempBadge")
         self.current_temp_label.setAlignment(QtCore.Qt.AlignCenter)
@@ -636,6 +771,13 @@ class DataCollectorQtApp(QtWidgets.QMainWindow):
         spin.setKeyboardTracking(False)
         return spin
 
+    def _set_combo_text(self, combo: QtWidgets.QComboBox, value: str) -> None:
+        index = combo.findText(value)
+        if index < 0:
+            combo.addItem(value)
+            index = combo.findText(value)
+        combo.setCurrentIndex(index)
+
     def _add_form_fields(
         self,
         grid: QtWidgets.QGridLayout,
@@ -707,24 +849,12 @@ class DataCollectorQtApp(QtWidgets.QMainWindow):
         finally:
             self._syncing_fields = False
 
-    def _apply_temperature_common_settings(self, config: Damx8013Config) -> None:
-        if not hasattr(self, "temp_rate"):
-            return
-        try:
-            self._syncing_fields = True
-            self.temp_rate.setValue(config.sample_rate_hz)
-            self.temp_samples.setValue(config.segment_samples)
-            self.temp_seconds.setValue(config.segment_seconds)
-            self.temp_min.setValue(config.min_deg_c)
-            self.temp_max.setValue(config.max_deg_c)
-        finally:
-            self._syncing_fields = False
-
     def refresh_devices(self) -> None:
         if self.controller.running:
             QtWidgets.QMessageBox.information(self, "DAQmx", "Stop acquisition before refreshing devices.")
             return
 
+        self._remember_current_channel_defaults()
         self._clear_channel_rows()
         snapshot = {"devices": []}
         try:
@@ -737,8 +867,7 @@ class DataCollectorQtApp(QtWidgets.QMainWindow):
             self._log(f"NI device refresh failed: {type(exc).__name__}: {exc}")
 
         try:
-            self.temperature_card_config = load_temperature_card_config(TEMPERATURE_CARD_CONFIG_PATH)
-            self._apply_temperature_common_settings(self.temperature_card_config)
+            self.temperature_card_config = load_temperature_card_config(self.temperature_card_config_path)
             self._add_temperature_card_rows(self.temperature_card_config)
         except Exception as exc:
             self._log(f"DAMX-8013 config skipped: {type(exc).__name__}: {exc}")
@@ -753,6 +882,9 @@ class DataCollectorQtApp(QtWidgets.QMainWindow):
                     product_type=str(device.get("product_type") or ""),
                     channel=channel,
                     signal_type=signal_type,
+                    metadata=self._channel_metadata_default(channel),
+                    selection_default=self._channel_selection_default(channel),
+                    metadata_changed=self._handle_channel_metadata_changed,
                 )
                 self.channel_rows.append(row)
                 self.channel_list_layout.insertWidget(self.channel_list_layout.count() - 1, row)
@@ -764,11 +896,15 @@ class DataCollectorQtApp(QtWidgets.QMainWindow):
 
     def _add_temperature_card_rows(self, config: Damx8013Config) -> None:
         for channel_number in range(1, DAMX8013_CHANNEL_COUNT + 1):
+            channel_name = build_temperature_channel_name(config.port, channel_number)
             row = ChannelRowWidget(
                 module=config.port,
                 product_type=config.model,
-                channel=build_temperature_channel_name(config.port, channel_number),
+                channel=channel_name,
                 signal_type=SignalType.TEMPERATURE_NTC,
+                metadata=self._channel_metadata_default(channel_name),
+                selection_default=self._channel_selection_default(channel_name),
+                metadata_changed=self._handle_channel_metadata_changed,
             )
             self.channel_rows.append(row)
             self.channel_list_layout.insertWidget(self.channel_list_layout.count() - 1, row)
@@ -786,7 +922,47 @@ class DataCollectorQtApp(QtWidgets.QMainWindow):
                 widget.setParent(None)
                 widget.deleteLater()
 
-    def start_acquisition(self) -> None:
+    def _channel_metadata_default(self, channel: str) -> SensorMetadata:
+        return self.channel_metadata_defaults.get(channel, SensorMetadata())
+
+    def _channel_selection_default(self, channel: str) -> ChannelSelectionStartupConfig:
+        return self.channel_selection_defaults.get(channel, ChannelSelectionStartupConfig())
+
+    def _handle_channel_metadata_changed(self, channel: str, metadata: SensorMetadata) -> None:
+        if has_sensor_metadata(metadata):
+            self.channel_metadata_defaults[channel] = metadata
+        else:
+            self.channel_metadata_defaults.pop(channel, None)
+
+    def _remember_current_channel_metadata(self) -> None:
+        for row in self.channel_rows:
+            self._handle_channel_metadata_changed(row.channel, row.sensor_metadata)
+
+    def _remember_current_channel_selection(self) -> None:
+        for row in self.channel_rows:
+            self.channel_selection_defaults[row.channel] = ChannelSelectionStartupConfig(
+                plot=row.plot_checkbox.isChecked(),
+                save=row.save_checkbox.isChecked(),
+            )
+
+    def _remember_current_channel_defaults(self) -> None:
+        self._remember_current_channel_metadata()
+        self._remember_current_channel_selection()
+
+    def _save_channel_defaults(self) -> None:
+        self._remember_current_channel_defaults()
+        try:
+            save_channel_defaults(
+                STARTUP_CONFIG_PATH,
+                self.channel_metadata_defaults,
+                self.channel_selection_defaults,
+            )
+        except Exception as exc:
+            self._log(f"Channel defaults save failed: {type(exc).__name__}: {exc}")
+        else:
+            self._log(f"Channel defaults saved: {STARTUP_CONFIG_PATH}")
+
+    def start_acquisition(self) -> bool:
         try:
             self._validate_plot_display_settings()
             config = self._build_run_configuration()
@@ -794,7 +970,7 @@ class DataCollectorQtApp(QtWidgets.QMainWindow):
             self.controller.start(config)
         except Exception as exc:
             QtWidgets.QMessageBox.critical(self, "Start failed", str(exc))
-            return
+            return False
 
         self.plot_buffers = {signal_type: {} for signal_type in PLOT_SIGNAL_TYPES}
         for panel in self.plot_panels.values():
@@ -817,13 +993,14 @@ class DataCollectorQtApp(QtWidgets.QMainWindow):
             self._log("Monitoring started. Press Trigger to begin recording.")
         else:
             self._log("Monitoring started with no Save channels selected.")
+        return True
 
-    def trigger_recording(self) -> None:
+    def trigger_recording(self) -> Path | None:
         try:
             run_dir = self.controller.trigger_recording()
         except Exception as exc:
             QtWidgets.QMessageBox.critical(self, "Trigger failed", str(exc))
-            return
+            return None
         self.recording_started_at = time.monotonic()
         self.recorded_segment_count = 0
         self.recording_run_dir = run_dir
@@ -831,17 +1008,302 @@ class DataCollectorQtApp(QtWidgets.QMainWindow):
         self.trigger_button.setEnabled(False)
         self._update_status_display()
         self._log(f"Recording triggered: {run_dir}")
+        return run_dir
+
+    def start_standard_workflow(self) -> None:
+        if self.standard_workflow_run is not None and self.standard_workflow_run.status == "running":
+            return
+        if self.controller.running:
+            QtWidgets.QMessageBox.information(
+                self,
+                "Standard flow",
+                "Stop the current acquisition before starting a standard run.",
+            )
+            return
+        if self.spindle_device is None:
+            QtWidgets.QMessageBox.information(self, "Standard flow", "Connect spindle before starting.")
+            return
+        if not any(row.save_checkbox.isChecked() for row in self.channel_rows):
+            QtWidgets.QMessageBox.information(
+                self,
+                "Standard flow",
+                "Select at least one Save channel before starting.",
+            )
+            return
+
+        try:
+            config = self._standard_workflow_config_from_ui()
+            validate_standard_workflow_config(
+                config,
+                min_allowed_rpm=1,
+                max_allowed_rpm=self.spindle_config.safety.max_rpm,
+            )
+        except Exception as exc:
+            QtWidgets.QMessageBox.critical(self, "Standard flow config failed", str(exc))
+            return
+
+        self._apply_standard_workflow_record_defaults(config)
+        if not self.start_acquisition():
+            return
+
+        settle_s = self._standard_workflow_settle_delay_s()
+        self.standard_workflow_pending_config = config
+        self.standard_workflow_waiting_for_settle = True
+        self._set_standard_workflow_inputs_enabled(False)
+        self.standard_start_button.setEnabled(False)
+        self.start_button.setEnabled(False)
+        self.trigger_button.setEnabled(False)
+        self.spindle_set_button.setEnabled(False)
+        self.standard_emergency_button.setEnabled(True)
+        self.standard_status_label.setText("Settling")
+        self.standard_step_label.setText("pre-trigger")
+        self.standard_target_label.setText("-- rpm")
+        self.standard_remaining_label.setText(format_elapsed(settle_s))
+        self.standard_progress.setValue(0)
+        self._log(f"Standard flow waiting {settle_s:.1f}s for acquisition settle before recording.")
+        QtCore.QTimer.singleShot(int(round(settle_s * 1000.0)), self._start_standard_workflow_recording)
+
+    def _start_standard_workflow_recording(self) -> None:
+        config = self.standard_workflow_pending_config
+        self.standard_workflow_pending_config = None
+        self.standard_workflow_waiting_for_settle = False
+        if config is None:
+            return
+        if not self.controller.running:
+            self._restore_standard_workflow_controls()
+            return
+        if self.spindle_device is None:
+            self._request_acquisition_stop("Standard flow aborted because spindle is disconnected.")
+            self._restore_standard_workflow_controls()
+            return
+
+        run_dir = self.trigger_recording()
+        if run_dir is None:
+            self._request_acquisition_stop("Standard flow aborted because recording could not be triggered.")
+            self._restore_standard_workflow_controls()
+            return
+
+        now = time.monotonic()
+        self.standard_workflow_run = StandardWorkflowRun(
+            config,
+            min_allowed_rpm=1,
+            max_allowed_rpm=self.spindle_config.safety.max_rpm,
+            started_at_monotonic=now,
+        )
+        self.standard_workflow_run_dir = run_dir
+        self.standard_workflow_started_at_local = datetime.now().isoformat(timespec="seconds")
+        self.standard_workflow_finished_at_local = ""
+        self._set_standard_workflow_inputs_enabled(False)
+        self.standard_start_button.setEnabled(False)
+        self.start_button.setEnabled(False)
+        self.trigger_button.setEnabled(False)
+        self.spindle_set_button.setEnabled(False)
+        self.standard_emergency_button.setEnabled(True)
+        self._annotate_manifest_with_standard_workflow("running")
+        self._send_standard_workflow_step(self.standard_workflow_run.current_step)
+        self._update_standard_workflow_display()
+        self.standard_workflow_timer.start()
+        self._log(f"Standard flow started: {run_dir}")
+
+    def emergency_stop_standard_workflow(self) -> None:
+        if self.standard_workflow_pending_config is not None or self.standard_workflow_waiting_for_settle:
+            self.standard_workflow_pending_config = None
+            self.standard_workflow_waiting_for_settle = False
+            if self.spindle_device is not None:
+                self._run_spindle_command(self.spindle_device.stop, "Emergency stop command sent.")
+            self._request_acquisition_stop("Standard flow emergency stop requested during settle.")
+            self._restore_standard_workflow_controls()
+            return
+        if self.standard_workflow_run is not None and self.standard_workflow_run.status == "running":
+            self.standard_workflow_run.emergency_stop()
+            self._finish_standard_workflow(
+                "emergency_stopped",
+                "Standard flow emergency stop requested.",
+                stop_spindle=True,
+                stop_acquisition=True,
+                stop_delay_ms=0,
+            )
+            return
+        if self.spindle_device is not None:
+            self._run_spindle_command(self.spindle_device.stop, "Emergency stop command sent.")
+
+    def _standard_workflow_config_from_ui(self) -> StandardWorkflowConfig:
+        return StandardWorkflowConfig(
+            start_rpm=self.standard_start_rpm.value(),
+            step_rpm=self.standard_step_rpm.value(),
+            max_rpm=self.standard_max_rpm.value(),
+            transition_hold_s=self.standard_transition_hold.value(),
+            max_hold_s=self.standard_max_hold.value(),
+        )
+
+    def _apply_standard_workflow_record_defaults(self, config: StandardWorkflowConfig) -> None:
+        steps = build_standard_workflow_steps(config)
+        total_hold_s = sum(step.hold_s for step in steps)
+        self.target_speed_edit.setText(str(config.max_rpm))
+        self.ramp_method_edit.setText("standard_step")
+        self.run_duration_edit.setText(f"{total_hold_s:.1f}")
+
+    def _send_standard_workflow_step(self, step) -> None:
+        device = self.spindle_device
+        if device is None:
+            self._finish_standard_workflow(
+                "failed",
+                "Standard flow failed because spindle is disconnected.",
+                stop_spindle=False,
+                stop_acquisition=True,
+                stop_delay_ms=0,
+            )
+            return
+        rpm = step.target_rpm
+        self.spindle_target_rpm.setValue(rpm)
+        self._run_spindle_command(
+            lambda: device.set_speed_rpm(rpm, prepare=True),
+            (
+                f"Standard flow step {step.index + 1}/"
+                f"{len(self.standard_workflow_run.steps) if self.standard_workflow_run else '?'}: "
+                f"{step.phase} target {rpm} rpm, hold {step.hold_s:.1f}s."
+            ),
+        )
+
+    def _standard_workflow_settle_delay_s(self) -> float:
+        has_vibration = any(
+            (row.plot_checkbox.isChecked() or row.save_checkbox.isChecked())
+            and row.signal_type == SignalType.ACCELERATION
+            for row in self.channel_rows
+        )
+        if not has_vibration:
+            return 0.0
+        return max(0.0, self.accel_settle.value())
+
+    def _poll_standard_workflow(self) -> None:
+        run = self.standard_workflow_run
+        if run is None or run.status != "running":
+            self.standard_workflow_timer.stop()
+            return
+        event = run.update(time.monotonic())
+        if event is not None and event.kind == "set_speed" and event.step is not None:
+            self._send_standard_workflow_step(event.step)
+        elif event is not None and event.kind == "complete":
+            self._finish_standard_workflow(
+                "completed",
+                "Standard flow completed.",
+                stop_spindle=True,
+                stop_acquisition=True,
+                stop_delay_ms=max(100, self.spindle_config.ui.poll_interval_ms),
+            )
+            return
+        self._update_standard_workflow_display()
+
+    def _finish_standard_workflow(
+        self,
+        status: str,
+        message: str,
+        *,
+        stop_spindle: bool,
+        stop_acquisition: bool,
+        stop_delay_ms: int,
+    ) -> None:
+        run = self.standard_workflow_run
+        if run is not None and status == "failed":
+            run.fail()
+        self.standard_workflow_timer.stop()
+        self.standard_workflow_finished_at_local = datetime.now().isoformat(timespec="seconds")
+        self._annotate_manifest_with_standard_workflow(status)
+        self._update_standard_workflow_display(status_override=status)
+        self._log(message)
+        if stop_spindle and self.spindle_device is not None:
+            self._run_spindle_command(self.spindle_device.stop, "Standard flow spindle stop command sent.")
+        if stop_acquisition:
+            if stop_delay_ms > 0:
+                QtCore.QTimer.singleShot(
+                    stop_delay_ms,
+                    lambda: self._request_acquisition_stop("Standard flow acquisition stop requested."),
+                )
+            else:
+                self._request_acquisition_stop("Standard flow acquisition stop requested.")
+
+    def _update_standard_workflow_display(self, status_override: str | None = None) -> None:
+        run = self.standard_workflow_run
+        if run is None:
+            status = status_override or "idle"
+            self.standard_status_label.setText(status)
+            self.standard_step_label.setText("--")
+            self.standard_target_label.setText("-- rpm")
+            self.standard_remaining_label.setText("--")
+            self.standard_progress.setValue(0)
+            return
+        snapshot = run.snapshot(time.monotonic())
+        status = status_override or snapshot.status
+        self.standard_status_label.setText(status)
+        self.standard_step_label.setText(f"{snapshot.step_index}/{snapshot.step_count}")
+        self.standard_target_label.setText(f"{snapshot.target_rpm} rpm")
+        self.standard_remaining_label.setText(format_elapsed(snapshot.remaining_s))
+        self.standard_progress.setValue(int(round(snapshot.progress_fraction * 1000)))
+
+    def _set_standard_workflow_inputs_enabled(self, enabled: bool) -> None:
+        for widget in (
+            self.standard_start_rpm,
+            self.standard_step_rpm,
+            self.standard_max_rpm,
+            self.standard_transition_hold,
+            self.standard_max_hold,
+        ):
+            widget.setEnabled(enabled)
+
+    def _restore_standard_workflow_controls(self) -> None:
+        self._set_standard_workflow_inputs_enabled(True)
+        self.standard_start_button.setEnabled(True)
+        self.standard_emergency_button.setEnabled(self.spindle_device is not None)
+        if self.spindle_device is not None:
+            self.spindle_set_button.setEnabled(True)
+            self.spindle_stop_button.setEnabled(True)
+        if not self.controller.running:
+            self.start_button.setEnabled(True)
+
+    def _annotate_manifest_with_standard_workflow(self, status: str) -> None:
+        run_dir = self.standard_workflow_run_dir
+        run = self.standard_workflow_run
+        if run_dir is None or run is None:
+            return
+        manifest_path = run_dir / "manifest.json"
+        if not manifest_path.exists():
+            return
+        try:
+            payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+            snapshot = run.snapshot(time.monotonic())
+            payload["standard_acquisition_flow"] = {
+                "status": status,
+                "started_at_local": self.standard_workflow_started_at_local,
+                "finished_at_local": self.standard_workflow_finished_at_local or None,
+                "configuration": run.config.to_json(),
+                "steps": run.steps_json(),
+                "current_step_index": snapshot.step_index,
+                "step_count": snapshot.step_count,
+                "progress_fraction": snapshot.progress_fraction,
+            }
+            tmp_path = manifest_path.with_suffix(".json.tmp")
+            tmp_path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+            tmp_path.replace(manifest_path)
+        except Exception as exc:
+            self._log(f"Standard flow manifest annotation failed: {type(exc).__name__}: {exc}")
 
     def toggle_spindle_connection(self) -> None:
         if self.spindle_device is None:
             self.connect_spindle()
         else:
+            if self.standard_workflow_run is not None and self.standard_workflow_run.status == "running":
+                QtWidgets.QMessageBox.information(
+                    self,
+                    "Standard flow",
+                    "Use Emergency Stop before disconnecting spindle during a standard run.",
+                )
+                return
             self.disconnect_spindle()
 
     def connect_spindle(self) -> None:
         try:
             config = self._spindle_config_from_ui()
-            save_spindle_config(SPINDLE_CONFIG_PATH, config)
+            save_spindle_config(self.spindle_config_path, config)
             device = SpindleDevice(config)
             device.connect()
         except Exception as exc:
@@ -860,6 +1322,7 @@ class DataCollectorQtApp(QtWidgets.QMainWindow):
         self.spindle_connect_button.setText("Disconnect")
         self.spindle_set_button.setEnabled(True)
         self.spindle_stop_button.setEnabled(True)
+        self.standard_emergency_button.setEnabled(True)
         self.spindle_connection_label.setText(f"Connected {config.serial.port}")
         self._log(f"Spindle connected on {config.serial.port}.")
 
@@ -879,6 +1342,7 @@ class DataCollectorQtApp(QtWidgets.QMainWindow):
         self.spindle_connect_button.setText("Connect")
         self.spindle_set_button.setEnabled(False)
         self.spindle_stop_button.setEnabled(False)
+        self.standard_emergency_button.setEnabled(False)
         self.spindle_connection_label.setText("Disconnected")
         self.spindle_quality_label.setText("Disconnected")
 
@@ -969,6 +1433,14 @@ class DataCollectorQtApp(QtWidgets.QMainWindow):
                 self._log(event[1])
             elif kind == "error":
                 self.spindle_quality_label.setText(event[1])
+                if self.standard_workflow_run is not None and self.standard_workflow_run.status == "running":
+                    self._finish_standard_workflow(
+                        "failed",
+                        f"Standard flow failed: {event[1]}",
+                        stop_spindle=True,
+                        stop_acquisition=True,
+                        stop_delay_ms=0,
+                    )
                 QtWidgets.QMessageBox.critical(self, "Spindle command failed", event[1])
 
     def _handle_spindle_reading(
@@ -1066,11 +1538,31 @@ class DataCollectorQtApp(QtWidgets.QMainWindow):
         return (minimum, maximum)
 
     def stop_acquisition(self) -> None:
+        if self.standard_workflow_pending_config is not None or self.standard_workflow_waiting_for_settle:
+            self.standard_workflow_pending_config = None
+            self.standard_workflow_waiting_for_settle = False
+            if self.spindle_device is not None:
+                self._run_spindle_command(self.spindle_device.stop, "Standard flow spindle stop command sent.")
+            self._restore_standard_workflow_controls()
+            self._request_acquisition_stop("Standard flow stopped manually during settle.")
+            return
+        if self.standard_workflow_run is not None and self.standard_workflow_run.status == "running":
+            self._finish_standard_workflow(
+                "failed",
+                "Standard flow stopped manually.",
+                stop_spindle=True,
+                stop_acquisition=True,
+                stop_delay_ms=0,
+            )
+            return
+        self._request_acquisition_stop("Stop requested.")
+
+    def _request_acquisition_stop(self, message: str) -> None:
         self.controller.stop()
         self._set_status_text("Stopping")
         self.stop_button.setEnabled(False)
         self.trigger_button.setEnabled(False)
-        self._log("Stop requested.")
+        self._log(message)
 
     def _build_run_configuration(self) -> RunConfiguration:
         selections = [row.selection() for row in self.channel_rows if row.plot_checkbox.isChecked() or row.save_checkbox.isChecked()]
@@ -1163,7 +1655,7 @@ class DataCollectorQtApp(QtWidgets.QMainWindow):
             b_value=base.b_value,
             sync_parameters_on_start=base.sync_parameters_on_start,
         )
-        save_temperature_card_config(TEMPERATURE_CARD_CONFIG_PATH, config)
+        save_temperature_card_config(self.temperature_card_config_path, config)
         self.temperature_card_config = config
         return temperature_ntc_settings_from_config(config)
 
@@ -1270,18 +1762,43 @@ class DataCollectorQtApp(QtWidgets.QMainWindow):
             self._update_status_display()
 
     def _finish_monitoring(self) -> None:
+        run_dir = self.recording_run_dir
         self._stop_spindle_recording()
         final_segments = self.last_recorded_segment_count
+        if run_dir is not None and final_segments:
+            self._postprocess_run(run_dir)
         self.monitoring_started_at = None
         self.recording_started_at = None
         self.recording_run_dir = None
+        self.standard_workflow_pending_config = None
+        self.standard_workflow_waiting_for_settle = False
         self.start_button.setEnabled(True)
         self.trigger_button.setEnabled(False)
         self.stop_button.setEnabled(False)
+        self._set_standard_workflow_inputs_enabled(True)
+        self.standard_start_button.setEnabled(True)
+        self.standard_emergency_button.setEnabled(self.spindle_device is not None)
+        if self.spindle_device is not None:
+            self.spindle_set_button.setEnabled(True)
+            self.spindle_stop_button.setEnabled(True)
+        if self.standard_workflow_run is not None and self.standard_workflow_run.status != "running":
+            self.standard_workflow_run = None
+            self.standard_workflow_run_dir = None
         status = "Ready"
         if final_segments:
             status = f"Ready | last segments {final_segments}"
         self._set_status_text(status)
+
+    def _postprocess_run(self, run_dir: Path) -> None:
+        try:
+            self._set_status_text("Postprocess")
+            result = postprocess_run_outputs(run_dir)
+        except Exception as exc:
+            self._log(f"Postprocess failed: {type(exc).__name__}: {exc}")
+            return
+        summary_path = result.get("summary_csv")
+        trend_count = len(result.get("trend_pngs") or [])
+        self._log(f"Postprocess completed: {summary_path}; trends={trend_count}")
 
     def _update_status_display(self) -> None:
         if self.recording_started_at is not None:
@@ -1401,6 +1918,7 @@ class DataCollectorQtApp(QtWidgets.QMainWindow):
 
     def closeEvent(self, event: QtCore.QEvent) -> None:
         self.status_label.setText("Closing")
+        self._save_channel_defaults()
         if self.spindle_device is not None and self.spindle_device.target_rpm > 0:
             choice = QtWidgets.QMessageBox.question(
                 self,
@@ -1432,13 +1950,24 @@ class DataCollectorQtApp(QtWidgets.QMainWindow):
 
 
 class ChannelRowWidget(QtWidgets.QWidget):
-    def __init__(self, module: str, product_type: str, channel: str, signal_type: SignalType) -> None:
+    def __init__(
+        self,
+        module: str,
+        product_type: str,
+        channel: str,
+        signal_type: SignalType,
+        metadata: SensorMetadata | None = None,
+        selection_default: ChannelSelectionStartupConfig | None = None,
+        metadata_changed=None,
+    ) -> None:
         super().__init__()
         self.module = module
         self.product_type = product_type
         self.channel = channel
         self.signal_type = signal_type
-        self.sensor_metadata = SensorMetadata()
+        self.sensor_metadata = metadata or SensorMetadata()
+        self.selection_default = selection_default or ChannelSelectionStartupConfig()
+        self.metadata_changed = metadata_changed
 
         layout = QtWidgets.QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -1454,11 +1983,14 @@ class ChannelRowWidget(QtWidgets.QWidget):
         signal_label.setFixedWidth(110)
         self.plot_checkbox = QtWidgets.QCheckBox()
         self.plot_checkbox.setFixedWidth(38)
+        self.plot_checkbox.setChecked(self.selection_default.plot)
         self.save_checkbox = QtWidgets.QCheckBox()
         self.save_checkbox.setFixedWidth(38)
+        self.save_checkbox.setChecked(self.selection_default.save)
         self.metadata_button = QtWidgets.QPushButton("Meta")
         self.metadata_button.setFixedWidth(46)
         self.metadata_button.clicked.connect(self._edit_metadata)
+        self._refresh_metadata_button()
 
         layout.addWidget(module_label)
         layout.addWidget(channel_label)
@@ -1482,15 +2014,12 @@ class ChannelRowWidget(QtWidgets.QWidget):
         dialog = ChannelMetadataDialog(self.sensor_metadata, self)
         if dialog.exec() == QtWidgets.QDialog.Accepted:
             self.sensor_metadata = dialog.metadata()
-            has_metadata = any(
-                (
-                    self.sensor_metadata.sensor_id,
-                    self.sensor_metadata.measurement_position,
-                    self.sensor_metadata.direction,
-                    self.sensor_metadata.mounting_method,
-                )
-            )
-            self.metadata_button.setText("Meta*" if has_metadata else "Meta")
+            self._refresh_metadata_button()
+            if self.metadata_changed is not None:
+                self.metadata_changed(self.channel, self.sensor_metadata)
+
+    def _refresh_metadata_button(self) -> None:
+        self.metadata_button.setText("Meta*" if has_sensor_metadata(self.sensor_metadata) else "Meta")
 
 
 class ChannelMetadataDialog(QtWidgets.QDialog):
@@ -1879,6 +2408,17 @@ def plot_color_for_channel(channel: str) -> str:
     if channel.startswith("RTD "):
         return "#0f766e"
     return "#1f77b4"
+
+
+def has_sensor_metadata(metadata: SensorMetadata) -> bool:
+    return any(
+        (
+            metadata.sensor_id,
+            metadata.measurement_position,
+            metadata.direction,
+            metadata.mounting_method,
+        )
+    )
 
 
 def plot_title(channel: str, buffer: PlotBuffer) -> str:

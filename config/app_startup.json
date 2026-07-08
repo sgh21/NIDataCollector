@@ -1,0 +1,93 @@
+{
+  "output": {
+    "run_dir": "data/runs",
+    "override_network_reservation": false
+  },
+  "vibration": {
+    "sample_rate_hz": 25600.0,
+    "segment_samples": 256000,
+    "min_g": -50.0,
+    "max_g": 50.0,
+    "sensitivity_mv_per_g": 100.0,
+    "excitation_current_a": 0.004,
+    "settle_seconds": 10.0,
+    "coupling": "AC",
+    "plot_window_s": 10.0,
+    "plot_min_g": -0.2,
+    "plot_max_g": 0.2
+  },
+  "temperature": {
+    "sample_rate_hz": 10.0,
+    "segment_samples": 100,
+    "min_deg_c": -40.0,
+    "max_deg_c": 150.0,
+    "plot_window_s": 120.0,
+    "plot_min_deg_c": 10.0,
+    "plot_max_deg_c": 50.0,
+    "alert_deg_c": 80.0,
+    "rtd": {
+      "excitation_current_a": 0.001,
+      "r0_ohms": 100.0,
+      "type": "PT_3851",
+      "wiring": "FOUR_WIRE"
+    },
+    "ntc": {
+      "config_path": "config/temperature_card.json"
+    }
+  },
+  "spindle": {
+    "config_path": "config/spindle_control.json",
+    "default_target_rpm": 500,
+    "plot_window_s": 10.0
+  },
+  "standard_flow": {
+    "start_rpm": 500,
+    "step_rpm": 500,
+    "max_rpm": 6000,
+    "transition_hold_s": 10.0,
+    "max_hold_s": 480.0
+  },
+  "record": {
+    "spindle_id_placeholder": "SP01",
+    "sample_label_placeholder": "normal_baseline"
+  },
+  "channel_selection": {},
+  "channel_metadata": {
+    "COM9/ntc1": {
+      "sensor_id": "NTC1",
+      "measurement_position": "FrontBearingInner",
+      "direction": "None",
+      "mounting_method": "Contact"
+    },
+    "COM9/ntc2": {
+      "sensor_id": "NTC2",
+      "measurement_position": "",
+      "direction": "",
+      "mounting_method": ""
+    },
+    "cDAQ9185-254D6AAMod1/ai0": {
+      "sensor_id": "ACC1",
+      "measurement_position": "FrontBearingOuter",
+      "direction": "Y",
+      "mounting_method": "Magnet"
+    },
+    "cDAQ9185-254D6AAMod1/ai1": {
+      "sensor_id": "ACC2",
+      "measurement_position": "FrontBearingOuter",
+      "direction": "X",
+      "mounting_method": "Magnet"
+    },
+    "cDAQ9185-254D6AAMod1/ai2": {
+      "sensor_id": "ACC3",
+      "measurement_position": "BenchTop",
+      "direction": "Y",
+      "mounting_method": "Magnet"
+    },
+    "cDAQ9185-254D6AAMod2/ai1": {
+      "sensor_id": "RTD1",
+      "measurement_position": "Environment",
+      "direction": "None",
+      "mounting_method": "Contact"
+    }
+  }
+}
