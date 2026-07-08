@@ -116,7 +116,7 @@ def test_non_finite_input_warns_and_analyzes_finite_values(tmp_path):
         values[np.isfinite(values)],
     )
 
-    assert any("non-finite values interpolated" in warning for warning in channel["warnings"])
+    assert any("finite ratio=" in warning for warning in channel["warnings"])
     assert channel["basic"]["finite_ratio"] == pytest.approx(5 / 8)
     assert channel["time_domain"]["rms"] == pytest.approx(np.sqrt(np.mean(expected_values**2)))
     assert channel["frequency_domain"]["bands"]
@@ -146,7 +146,7 @@ def test_non_finite_samples_keep_alignment_for_frequency_analysis(tmp_path):
     assert channel["basic"]["finite_ratio"] == pytest.approx((len(time_s) - 2) / len(time_s))
     assert channel["frequency_domain"]["dominant_frequency_hz"] == pytest.approx(frequency_hz, abs=1.0)
     assert channel["frequency_domain"]["spectral_peaks"][0]["frequency_hz"] == pytest.approx(frequency_hz, abs=1.0)
-    assert any("interpolated" in warning.lower() for warning in channel["warnings"])
+    assert any("finite ratio=" in warning for warning in channel["warnings"])
 
 
 def test_constant_signal_has_no_fabricated_spectral_peak(tmp_path):
@@ -166,7 +166,36 @@ def test_constant_signal_has_no_fabricated_spectral_peak(tmp_path):
     assert channel["basic"]["near_constant"] is True
     assert channel["frequency_domain"]["spectral_peaks"] == []
     assert channel["frequency_domain"]["dominant_frequency_hz"] == 0.0
+    assert np.isfinite(channel["envelope"]["kurtosis"])
+    json.dumps(result)
     assert any("near constant" in note.lower() for note in channel["analysis_notes"])
+
+
+def test_below_half_finite_ratio_skips_channel_feature_groups(tmp_path):
+    sample_rate_hz = 1024.0
+    values = np.array(
+        [1.0, np.nan, np.inf, np.nan, 2.0, np.nan, np.nan, np.inf, np.nan, np.nan, np.inf, 3.0],
+        dtype=float,
+    )
+    path = write_npz_xz_segment(
+        tmp_path / "below-half-finite-ratio.npz.xz",
+        data=values[None, :],
+        sample_rate_hz=sample_rate_hz,
+        channels=["Dev1/ai0"],
+    )
+    segment = read_vibration_segment(path)
+
+    result = analyze_segment(segment)
+    channel = result["channels"][0]
+
+    assert channel["basic"]["sample_count"] == len(values)
+    assert channel["basic"]["finite_ratio"] == pytest.approx(3 / len(values))
+    assert channel["time_domain"] == {}
+    assert channel["frequency_domain"] == {}
+    assert channel["envelope"] == {}
+    assert any("finite ratio=" in warning for warning in channel["warnings"])
+    assert any("finite-value ratio below 0.5" in warning for warning in channel["warnings"])
+    assert any("too short for reliable analysis" in warning.lower() for warning in channel["warnings"])
 
 
 def test_segment_analysis_uses_all_channels_by_default(tmp_path):

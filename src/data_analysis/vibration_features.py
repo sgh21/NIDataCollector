@@ -207,13 +207,18 @@ def _envelope_features(values: np.ndarray, sample_rate_hz: float, rpm: float | N
     analytic = signal.hilbert(values)
     envelope = np.abs(analytic)
     envelope_demeaned = envelope - float(np.mean(envelope))
+    envelope_std = float(np.std(envelope))
     n = envelope_demeaned.size
     frequencies = np.fft.rfftfreq(n, d=1.0 / sample_rate_hz)
     amplitudes = (2.0 / max(n, 1)) * np.abs(np.fft.rfft(envelope_demeaned))
     peaks = _top_peaks(frequencies, amplitudes, top_peaks, rpm)
+    if envelope.size > 3 and envelope_std > 1e-12:
+        envelope_kurtosis = float(stats.kurtosis(envelope, fisher=False, bias=False))
+    else:
+        envelope_kurtosis = 0.0
     return {
         "rms": float(np.sqrt(np.mean(envelope**2))),
-        "kurtosis": float(stats.kurtosis(envelope, fisher=False, bias=False)) if envelope.size > 3 else 0.0,
+        "kurtosis": envelope_kurtosis,
         "spectral_peaks": peaks,
         "_spectrum": {"frequency_hz": frequencies.tolist(), "amplitude": amplitudes.tolist()},
     }
