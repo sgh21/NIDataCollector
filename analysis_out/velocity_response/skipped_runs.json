@@ -1,0 +1,10 @@
+[
+  {
+    "run": "run_20260707_185308",
+    "reason": "manifest has no single target_speed_rpm"
+  },
+  {
+    "run": "run_20260707_185820",
+    "reason": "manifest has no single target_speed_rpm"
+  }
+]

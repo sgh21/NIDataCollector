@@ -1,0 +1,6 @@
+/data/
+/analysis_out/**/*.npz.xz
+/.vscode/
+/.superpowers/
+__pycache__/
+.pytest_cache/

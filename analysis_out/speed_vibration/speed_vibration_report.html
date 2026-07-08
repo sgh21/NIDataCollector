@@ -1,0 +1,264 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>不同转速稳态振动信号分析报告</title>
+  <style>
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", Arial, sans-serif;
+      color: #1f2933;
+      background: #f7f8fa;
+      line-height: 1.55;
+    }
+    main {
+      max-width: 1180px;
+      margin: 0 auto;
+      padding: 32px 24px 56px;
+      background: #fff;
+    }
+    h1, h2, h3 {
+      color: #111827;
+      line-height: 1.25;
+    }
+    h1 { margin: 0 0 8px; font-size: 30px; }
+    h2 { margin-top: 36px; border-bottom: 1px solid #d8dde3; padding-bottom: 6px; }
+    h3 { margin-top: 24px; }
+    .meta { color: #5b6775; margin-bottom: 24px; }
+    .summary {
+      border-left: 5px solid #2563eb;
+      background: #eff6ff;
+      padding: 16px 18px;
+      margin: 22px 0;
+    }
+    .warning {
+      border-left: 5px solid #c2410c;
+      background: #fff7ed;
+      padding: 14px 18px;
+      margin: 18px 0;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 14px 0 24px;
+      font-size: 14px;
+    }
+    th, td {
+      border: 1px solid #d8dde3;
+      padding: 8px 10px;
+      vertical-align: top;
+      text-align: right;
+    }
+    th {
+      background: #f1f5f9;
+      color: #111827;
+    }
+    td:first-child, th:first-child { text-align: left; }
+    .small { font-size: 13px; color: #5b6775; }
+    .figure {
+      margin: 18px 0 28px;
+      border: 1px solid #d8dde3;
+      padding: 10px;
+      background: #fff;
+    }
+    .figure img {
+      max-width: 100%;
+      display: block;
+      margin: 0 auto;
+    }
+    code {
+      background: #eef2f7;
+      padding: 1px 5px;
+      border-radius: 4px;
+    }
+    ul { padding-left: 22px; }
+  </style>
+</head>
+<body>
+<main>
+  <h1>不同转速稳态最后 1 分钟振动信号分析报告</h1>
+  <div class="meta">
+    数据目录：<code>data/runs/</code>；分析输出：<code>analysis_out/speed_vibration/</code>。
+    每个纳入 run 均取目标转速保持段的最后 60 s。
+  </div>
+
+  <div class="summary">
+    <strong>结论：</strong>
+    这些振动响应不是单纯的“转速越高，振动越大”的转速激励响应。
+    数据显示一倍转频和包络一倍转频确实存在，说明转速激励参与了激发；
+    但主导能量集中在 2-8 kHz 的高频峰，主频不按固定阶次随转速线性移动，
+    且不同通道对同一转速的响应差异明显。因此更合理的解释是：
+    <strong>转速相关激励提供输入，结构/安装/支撑传递路径的模态选择性放大了响应</strong>。
+    当前数据更偏向“结构响应/安装边界/传递路径问题主导”，而不是纯旋转阶次问题。
+  </div>
+
+  <h2>1. 样本与方法</h2>
+  <p>
+    本次纳入 10 个具有单一 <code>target_speed_rpm</code> 的稳态 run：
+    5000 rpm 1 组，6000 rpm 7 组，7000 rpm 1 组，8000 rpm 1 组。
+    <code>run_20260707_185308</code> 与 <code>run_20260707_185820</code>
+    因 manifest 中没有单一目标转速，未纳入本次跨转速稳态比较。
+  </p>
+  <p>
+    每个 run 使用 <code>spindle_telemetry.csv</code> 中目标转速保持块的最后 60 s，
+    再读取对应的 <code>acceleration_25600Hz_256000samples/*.npz.xz</code> 原始振动段。
+    每个通道实际分析样本数为 1,536,000 点，即 60 s × 25,600 Hz。
+  </p>
+
+  <table>
+    <thead>
+      <tr>
+        <th>通道</th>
+        <th>传感器</th>
+        <th>位置</th>
+        <th>方向</th>
+        <th>安装</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr><td>ai0</td><td>ACC1</td><td>FrontBearingOuter</td><td>Y</td><td>Magnet</td></tr>
+      <tr><td>ai1</td><td>ACC2</td><td>FrontBearingOuter</td><td>X</td><td>Magnet</td></tr>
+      <tr><td>ai2</td><td>ACC3</td><td>BenchTop</td><td>Y</td><td>Magnet</td></tr>
+    </tbody>
+  </table>
+
+  <h2>2. 转速稳定性</h2>
+  <p>
+    所有纳入窗口的实际转速都稳定在目标值附近，实际转速标准差约 0.40-0.68 rpm。
+    因此，不同振动响应的差异不太可能来自转速控制失稳。
+  </p>
+  <table>
+    <thead>
+      <tr>
+        <th>目标转速</th>
+        <th>样本数</th>
+        <th>实际转速均值</th>
+        <th>实际转速标准差</th>
+        <th>说明</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr><td>5000 rpm</td><td>1</td><td>4999.998 rpm</td><td>0.412 rpm</td><td>速度稳定，但 speed_ok 比例较低，后续宜复核判据阈值</td></tr>
+      <tr><td>6000 rpm</td><td>7</td><td>约 5999.93-6000.03 rpm</td><td>平均 0.456 rpm</td><td>重复 run 稳定，可用于观察重复性</td></tr>
+      <tr><td>7000 rpm</td><td>1</td><td>7000.005 rpm</td><td>0.602 rpm</td><td>速度稳定</td></tr>
+      <tr><td>8000 rpm</td><td>1</td><td>7999.979 rpm</td><td>0.677 rpm</td><td>速度稳定</td></tr>
+    </tbody>
+  </table>
+
+  <h2>3. 转速与振动幅值的关系</h2>
+  <p>
+    前轴承两路平均 RMS 不随转速单调增加：5000 rpm 最高，6000 rpm 明显降低，
+    7000 rpm 继续降低，8000 rpm 又有所回升。若响应主要由简单转速激励控制，
+    通常会看到更清晰的随转速上升趋势或稳定阶次规律；当前数据不支持这个简单模型。
+  </p>
+  <table>
+    <thead>
+      <tr>
+        <th>目标转速</th>
+        <th>run 数</th>
+        <th>前轴承 RMS 均值</th>
+        <th>台面 RMS 均值</th>
+        <th>前轴承 5-12.8 kHz 能量占比</th>
+        <th>前轴承 1X 直接谱幅值</th>
+        <th>前轴承 1X 包络幅值</th>
+        <th>前轴承主频均值</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr><td>5000 rpm</td><td>1</td><td>0.144249 g</td><td>0.047080 g</td><td>0.283422</td><td>0.001976 g</td><td>0.029333 g</td><td>4095.35 Hz</td></tr>
+      <tr><td>6000 rpm</td><td>7</td><td>0.076657 g</td><td>0.057419 g</td><td>0.565431</td><td>0.002265 g</td><td>0.010126 g</td><td>4862.72 Hz</td></tr>
+      <tr><td>7000 rpm</td><td>1</td><td>0.067528 g</td><td>0.085176 g</td><td>0.238960</td><td>0.008884 g</td><td>0.006311 g</td><td>3118.88 Hz</td></tr>
+      <tr><td>8000 rpm</td><td>1</td><td>0.084075 g</td><td>0.049143 g</td><td>0.159225</td><td>0.004907 g</td><td>0.005767 g</td><td>2599.06 Hz</td></tr>
+    </tbody>
+  </table>
+  <p class="small">
+    以目标转速均值聚合后，前轴承 RMS 与转速相关系数约 -0.705；
+    前轴承 1X 直接谱幅值与转速相关系数约 0.621；
+    前轴承 1X 包络幅值与转速相关系数约 -0.864。
+    由于 5000/7000/8000 rpm 各只有 1 个 run，相关系数只能作为趋势描述，不能作为统计显著性结论。
+  </p>
+
+  <div class="figure">
+    <img src="figures/speed_vibration_overview.png" alt="不同转速振动总览">
+  </div>
+
+  <h2>4. 频率证据：主导响应不像纯阶次响应</h2>
+  <p>
+    如果响应主要由固定转速阶次激励控制，主峰应以相近阶次随转速移动。
+    但本次数据中主峰阶次在不同转速和通道间跳变明显：
+    6000 rpm 下 ACC3 多数 run 以约 7080 Hz 为主，对应约 70.8X；
+    ACC1/ACC2 经常在约 4203 Hz 和 5229 Hz 之间切换，对应约 42.0X 和 52.3X。
+    7000 rpm 与 8000 rpm 又出现约 2038 Hz、2329 Hz、2869 Hz、4200 Hz 等主峰。
+    这些峰更像结构/安装/支撑传递路径中的模态被不同激励成分选择性激发。
+  </p>
+  <table>
+    <thead>
+      <tr>
+        <th>转速</th>
+        <th>ACC1 主峰</th>
+        <th>ACC2 主峰</th>
+        <th>ACC3 主峰</th>
+        <th>解读</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr><td>5000 rpm</td><td>4357.4 Hz / 52.3X</td><td>3833.3 Hz / 46.0X</td><td>6067.0 Hz / 72.8X</td><td>前轴承 Y 向 RMS 最高，包络 1X 也最高，疑似某一结构响应被激发</td></tr>
+      <tr><td>6000 rpm</td><td>4203 或 5229 Hz</td><td>多为 5229 Hz，部分 4203 Hz</td><td>多为 7080 Hz，部分 5229 Hz</td><td>同一转速重复 run 中主峰会切换，说明边界/安装/热状态/负载对频谱很敏感</td></tr>
+      <tr><td>7000 rpm</td><td>2037.8 Hz / 17.5X</td><td>4200.0 Hz / 36.0X</td><td>7064.4 Hz / 60.6X</td><td>台面 RMS 和 1X 响应增强，但前轴承 RMS 不高</td></tr>
+      <tr><td>8000 rpm</td><td>2869.0 Hz / 21.5X</td><td>2329.1 Hz / 17.5X</td><td>2329.1 Hz / 17.5X</td><td>前轴承 RMS 回升，但高频占比下降，主峰转向较低频结构峰</td></tr>
+    </tbody>
+  </table>
+
+  <div class="figure">
+    <img src="figures/channel_rms_by_speed.png" alt="各通道 RMS 与转速关系">
+  </div>
+  <div class="figure">
+    <img src="figures/dominant_frequency_by_speed.png" alt="各通道主频与转速关系">
+  </div>
+
+  <h2>5. 判断：转速激励存在，但结构响应占主导</h2>
+  <ul>
+    <li>
+      <strong>支持“转速激励存在”的证据：</strong>
+      1X 直接谱和 1X 包络谱都有可测幅值；7000/8000 rpm 的直接 1X 幅值相对更高；
+      6000 rpm 单段报告中包络谱也能看到 100 Hz、200 Hz、300 Hz 等转频相关调制。
+    </li>
+    <li>
+      <strong>反对“纯转速激励主导”的证据：</strong>
+      RMS 不随转速单调增加；主峰不按固定阶次移动；
+      同一 6000 rpm 重复 run 的主峰可在 4203、5229、7080 Hz 间切换。
+    </li>
+    <li>
+      <strong>支持“结构/安装/传递路径主导”的证据：</strong>
+      高频能量占比很高，尤其 ACC3 台面通道在 5000/6000/7000/8000 rpm 分别约
+      0.931、0.944、0.923、0.810；这说明台面或支撑路径对高频很敏感。
+      前轴承通道的高频占比和主峰位置也随 run 条件变化，符合边界条件影响模态响应的特征。
+    </li>
+  </ul>
+
+  <div class="warning">
+    当前证据不能直接给出轴承故障、动平衡不良或主轴结构损伤的硬诊断。
+    更稳妥的结论是：振动输入与转速有关，但被结构/安装/支撑传递路径强烈塑形。
+    需要相位/转速同步阶次分析、传感器重装验证和更密集转速扫频来进一步分离激励源与结构模态。
+  </div>
+
+  <h2>6. 建议</h2>
+  <ul>
+    <li>做 4500-8500 rpm 的细步长扫频，例如每 250 rpm 或 500 rpm 保持 60-120 s，观察主峰频率是固定不动还是随阶次移动。</li>
+    <li>加入转速相位信号或至少更高可信度的转速同步记录，做真正的 order tracking。</li>
+    <li>重装 ACC1/ACC2/ACC3，特别是磁吸安装面，检查 4203、5229、7080 Hz 峰是否随安装变化。</li>
+    <li>单独敲击或轻扫结构，测台面、轴承座、支撑件的固有频率，重点核对 2.3 kHz、4.2 kHz、5.23 kHz、7.08 kHz 附近。</li>
+    <li>5000 rpm 前轴承 Y 向 RMS 明显偏高，应复测一次，确认是否稳定复现；若复现，优先排查该速度附近的结构共振或安装边界变化。</li>
+  </ul>
+
+  <h2>7. 结果文件</h2>
+  <ul>
+    <li><code>speed_vibration_run_summary.csv</code>：run 级最后 60 s 汇总。</li>
+    <li><code>speed_vibration_channel_features.csv</code>：通道级 RMS、峰值、频谱、包络、频带占比。</li>
+    <li><code>speed_vibration_by_target_speed.csv</code>：按目标转速聚合后的指标。</li>
+    <li><code>speed_vibration_analysis.json</code>：完整结构化结果。</li>
+  </ul>
+</main>
+</body>
+</html>

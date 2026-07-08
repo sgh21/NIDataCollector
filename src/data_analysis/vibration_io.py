@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
+import io
 import lzma
 from pathlib import Path
 from typing import Any
@@ -65,7 +66,11 @@ def _string_scalar(payload: dict[str, Any], field_name: str) -> str:
     return str(scalar)
 
 
-def read_vibration_segment(path: Path | str) -> VibrationSegment:
+def read_vibration_segment(
+    path: Path | str,
+    *,
+    allowed_signal_types: tuple[str, ...] = ("acceleration",),
+) -> VibrationSegment:
     segment_path = Path(path)
     if not segment_path.exists():
         raise VibrationPayloadError(f"input file does not exist: {segment_path}")
@@ -106,8 +111,9 @@ def read_vibration_segment(path: Path | str) -> VibrationSegment:
 
     warnings: list[str] = []
 
-    if signal_type != "acceleration":
-        raise VibrationPayloadError(f"signal_type must be acceleration, got {signal_type!r}")
+    if signal_type not in allowed_signal_types:
+        allowed = ", ".join(allowed_signal_types)
+        raise VibrationPayloadError(f"signal_type must be one of {allowed}, got {signal_type!r}")
     if data.ndim != 2:
         raise VibrationPayloadError(f"data must be 2D with shape (channel_count, sample_count), got {data.shape}")
     if time_s.ndim != 1:
@@ -139,6 +145,40 @@ def read_vibration_segment(path: Path | str) -> VibrationSegment:
         unit=unit,
         warnings=tuple(warnings),
     )
+
+
+def write_vibration_segment(
+    path: Path | str,
+    *,
+    time_s: np.ndarray,
+    data: np.ndarray,
+    channels: tuple[str, ...] | list[str] | np.ndarray,
+    sample_start_index: int,
+    sample_rate_hz: float,
+    signal_type: str,
+    unit: str,
+    extra_fields: dict[str, Any] | None = None,
+) -> Path:
+    segment_path = Path(path)
+    segment_path.parent.mkdir(parents=True, exist_ok=True)
+
+    payload: dict[str, Any] = {
+        "time_s": np.asarray(time_s, dtype=np.float64),
+        "data": np.asarray(data, dtype=np.float64),
+        "channels": np.asarray(tuple(channels), dtype=str),
+        "sample_start_index": np.asarray(int(sample_start_index), dtype=np.int64),
+        "sample_rate_hz": np.asarray(float(sample_rate_hz), dtype=np.float64),
+        "signal_type": np.asarray(str(signal_type), dtype=str),
+        "unit": np.asarray(str(unit), dtype=str),
+    }
+    if extra_fields:
+        payload.update(extra_fields)
+
+    with io.BytesIO() as buffer:
+        np.savez(buffer, **payload)
+        with lzma.open(segment_path, "wb", preset=1) as handle:
+            handle.write(buffer.getvalue())
+    return segment_path
 
 
 def select_channels(segment: VibrationSegment, channel: str | None = None) -> VibrationSegment:
