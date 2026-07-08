@@ -165,3 +165,63 @@ def test_sample_rate_hz_must_be_finite(tmp_path, sample_rate):
 
     with pytest.raises(VibrationPayloadError, match="sample_rate_hz must be finite"):
         read_vibration_segment(path)
+
+
+def test_sample_rate_hz_must_be_scalar(tmp_path):
+    path = tmp_path / "multi-rate.npz.xz"
+    buffer = io.BytesIO()
+    np.savez(
+        buffer,
+        time_s=np.array([0.0, 0.001]),
+        data=np.array([[1.0, 2.0]]),
+        channels=np.array(["Dev1/ai0"]),
+        sample_start_index=np.asarray(0),
+        sample_rate_hz=np.array([1000.0, 2000.0]),
+        signal_type=np.asarray("acceleration"),
+        unit=np.asarray("g"),
+    )
+    with lzma.open(path, "wb") as handle:
+        handle.write(buffer.getvalue())
+
+    with pytest.raises(VibrationPayloadError, match="sample_rate_hz must be a scalar"):
+        read_vibration_segment(path)
+
+
+def test_signal_type_and_unit_must_be_scalar(tmp_path):
+    path = tmp_path / "multi-metadata.npz.xz"
+    buffer = io.BytesIO()
+    np.savez(
+        buffer,
+        time_s=np.array([0.0, 0.001]),
+        data=np.array([[1.0, 2.0]]),
+        channels=np.array(["Dev1/ai0"]),
+        sample_start_index=np.asarray(0),
+        sample_rate_hz=np.asarray(1000.0),
+        signal_type=np.array(["acceleration", "velocity"]),
+        unit=np.asarray(["g", "m/s^2"]),
+    )
+    with lzma.open(path, "wb") as handle:
+        handle.write(buffer.getvalue())
+
+    with pytest.raises(VibrationPayloadError, match="signal_type must be a scalar"):
+        read_vibration_segment(path)
+
+
+def test_data_must_be_numeric(tmp_path):
+    path = tmp_path / "non-numeric-data.npz.xz"
+    buffer = io.BytesIO()
+    np.savez(
+        buffer,
+        time_s=np.array([0.0, 0.001]),
+        data=np.array([["bad", "data"]], dtype=str),
+        channels=np.array(["Dev1/ai0"]),
+        sample_start_index=np.asarray(0),
+        sample_rate_hz=np.asarray(1000.0),
+        signal_type=np.asarray("acceleration"),
+        unit=np.asarray("g"),
+    )
+    with lzma.open(path, "wb") as handle:
+        handle.write(buffer.getvalue())
+
+    with pytest.raises(VibrationPayloadError, match="data must contain numeric values"):
+        read_vibration_segment(path)

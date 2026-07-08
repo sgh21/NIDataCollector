@@ -36,6 +36,35 @@ class VibrationSegment:
     warnings: tuple[str, ...] = ()
 
 
+def _numeric_array(payload: dict[str, Any], field_name: str) -> np.ndarray:
+    try:
+        return np.asarray(payload[field_name], dtype=np.float64)
+    except (TypeError, ValueError) as exc:
+        raise VibrationPayloadError(f"{field_name} must contain numeric values") from exc
+
+
+def _scalar_payload_value(payload: dict[str, Any], field_name: str) -> Any:
+    value = np.asarray(payload[field_name])
+    if value.size != 1:
+        raise VibrationPayloadError(f"{field_name} must be a scalar, got shape {value.shape}")
+    return value.reshape(()).item()
+
+
+def _numeric_scalar(payload: dict[str, Any], field_name: str, *, cast: type[float] | type[int]) -> float | int:
+    scalar = _scalar_payload_value(payload, field_name)
+    try:
+        return cast(scalar)
+    except (TypeError, ValueError) as exc:
+        raise VibrationPayloadError(f"{field_name} must be numeric") from exc
+
+
+def _string_scalar(payload: dict[str, Any], field_name: str) -> str:
+    scalar = _scalar_payload_value(payload, field_name)
+    if not isinstance(scalar, (str, bytes, np.str_, np.bytes_)):
+        raise VibrationPayloadError(f"{field_name} must be string-like")
+    return str(scalar)
+
+
 def read_vibration_segment(path: Path | str) -> VibrationSegment:
     segment_path = Path(path)
     if not segment_path.exists():
@@ -54,8 +83,8 @@ def read_vibration_segment(path: Path | str) -> VibrationSegment:
     if missing:
         raise VibrationPayloadError(f"missing required fields: {', '.join(missing)}")
 
-    time_s = np.asarray(payload["time_s"], dtype=np.float64)
-    data = np.asarray(payload["data"], dtype=np.float64)
+    time_s = _numeric_array(payload, "time_s")
+    data = _numeric_array(payload, "data")
     raw_channels = np.asarray(payload["channels"])
     if raw_channels.ndim != 1:
         raise VibrationPayloadError(f"channels must be 1D, got shape {raw_channels.shape}")
@@ -68,12 +97,12 @@ def read_vibration_segment(path: Path | str) -> VibrationSegment:
         if not bool(np.all(is_string_like)):
             raise VibrationPayloadError("channels must contain string-like values")
     channels = tuple(str(value) for value in raw_channels.astype(str).tolist())
-    sample_start_index = int(np.asarray(payload["sample_start_index"]).item())
-    sample_rate_hz = float(np.asarray(payload["sample_rate_hz"]).item())
+    sample_start_index = _numeric_scalar(payload, "sample_start_index", cast=int)
+    sample_rate_hz = _numeric_scalar(payload, "sample_rate_hz", cast=float)
     if not np.isfinite(sample_rate_hz):
         raise VibrationPayloadError(f"sample_rate_hz must be finite, got {sample_rate_hz!r}")
-    signal_type = str(np.asarray(payload["signal_type"]).item())
-    unit = str(np.asarray(payload["unit"]).item())
+    signal_type = _string_scalar(payload, "signal_type")
+    unit = _string_scalar(payload, "unit")
 
     warnings: list[str] = []
 

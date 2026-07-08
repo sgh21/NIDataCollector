@@ -220,3 +220,39 @@ def test_segment_analysis_uses_all_channels_by_default(tmp_path):
     assert result["selected_channels"] == ["Dev1/ai0", "Dev1/ai1"]
     assert len(result["channels"]) == 2
     assert {channel["channel"] for channel in result["channels"]} == {"Dev1/ai0", "Dev1/ai1"}
+
+
+def test_low_nyquist_warns_when_default_bands_are_clipped_or_omitted(tmp_path):
+    sample_rate_hz = 100.0
+    time_s = np.arange(1000) / sample_rate_hz
+    data = np.sin(2.0 * np.pi * 8.0 * time_s)[None, :]
+    path = write_npz_xz_segment(
+        tmp_path / "low-nyquist.npz.xz",
+        data=data,
+        sample_rate_hz=sample_rate_hz,
+        channels=["Dev1/ai0"],
+    )
+    segment = read_vibration_segment(path)
+
+    result = analyze_segment(segment, top_peaks=3)
+    channel = result["channels"][0]
+
+    assert any("10.0-100.0 Hz clipped" in warning for warning in channel["warnings"])
+    assert any("100.0-1000.0 Hz omitted" in warning for warning in channel["warnings"])
+    assert any(band["high_hz"] <= sample_rate_hz / 2.0 for band in channel["frequency_domain"]["bands"])
+
+
+def test_analyze_segment_rejects_invalid_optional_numeric_inputs(tmp_path):
+    path = write_npz_xz_segment(
+        tmp_path / "valid.npz.xz",
+        data=np.array([[0.0, 1.0, 0.0, -1.0]], dtype=float),
+        sample_rate_hz=1000.0,
+        channels=["Dev1/ai0"],
+    )
+    segment = read_vibration_segment(path)
+
+    with pytest.raises(ValueError, match="rpm must be finite and positive"):
+        analyze_segment(segment, rpm=float("nan"))
+
+    with pytest.raises(ValueError, match="top_peaks must be greater than or equal to 0"):
+        analyze_segment(segment, top_peaks=-1)

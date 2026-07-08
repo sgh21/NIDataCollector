@@ -1,12 +1,27 @@
 from __future__ import annotations
 
 import argparse
+import math
 from pathlib import Path
 import sys
 
 from data_analysis.vibration_features import analyze_segment
 from data_analysis.vibration_io import VibrationPayloadError, read_vibration_segment, select_channels
 from data_analysis.vibration_report import write_analysis_outputs
+
+
+def _validated_rpm(value: float | None) -> float | None:
+    if value is None:
+        return None
+    if not math.isfinite(value) or value <= 0.0:
+        raise VibrationPayloadError("rpm must be finite and positive")
+    return value
+
+
+def _validated_top_peaks(value: int) -> int:
+    if value < 0:
+        raise VibrationPayloadError("top_peaks must be greater than or equal to 0")
+    return value
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -25,9 +40,11 @@ def main(argv: list[str] | None = None) -> int:
     output_dir = args.output_dir or Path(f"{args.input.stem}_analysis")
 
     try:
+        rpm = _validated_rpm(args.rpm)
+        top_peaks = _validated_top_peaks(args.top_peaks)
         segment = read_vibration_segment(args.input)
         selected = select_channels(segment, args.channel)
-        analysis = analyze_segment(selected, rpm=args.rpm, top_peaks=args.top_peaks)
+        analysis = analyze_segment(selected, rpm=rpm, top_peaks=top_peaks)
         outputs = write_analysis_outputs(analysis, output_dir)
     except VibrationPayloadError as exc:
         print(f"error: {exc}", file=sys.stderr)

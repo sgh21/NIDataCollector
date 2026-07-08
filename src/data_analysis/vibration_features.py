@@ -22,7 +22,9 @@ def analyze_segment(
     rpm: float | None = None,
     top_peaks: int = 10,
 ) -> dict[str, Any]:
-    rotating_frequency_hz = None if rpm is None else float(rpm) / 60.0
+    rpm = _validated_rpm(rpm)
+    top_peaks = _validated_top_peaks(top_peaks)
+    rotating_frequency_hz = None if rpm is None else rpm / 60.0
     channels = [
         analyze_channel(
             channel=channel,
@@ -44,7 +46,7 @@ def analyze_segment(
             "sample_start_index": segment.sample_start_index,
         },
         "selected_channels": list(segment.channels),
-        "rpm": None if rpm is None else float(rpm),
+        "rpm": rpm,
         "rotating_frequency_hz": rotating_frequency_hz,
         "warnings": list(segment.warnings),
         "channels": channels,
@@ -76,7 +78,7 @@ def analyze_channel(
 
     demeaned = clean_values - float(np.mean(clean_values))
     time_features = _time_domain_features(clean_values, sample_rate_hz)
-    frequency_features = _frequency_features(demeaned, sample_rate_hz, rpm, top_peaks)
+    frequency_features, frequency_warnings = _frequency_features(demeaned, sample_rate_hz, rpm, top_peaks)
     envelope_features = _envelope_features(demeaned, sample_rate_hz, rpm, top_peaks)
     notes = _analysis_notes(time_features, frequency_features, clean_values)
 
@@ -86,10 +88,26 @@ def analyze_channel(
         "time_domain": time_features,
         "frequency_domain": frequency_features,
         "envelope": envelope_features,
-        "warnings": warnings,
+        "warnings": warnings + frequency_warnings,
         "analysis_notes": notes,
         "_waveform": clean_values.tolist(),
     }
+
+
+def _validated_rpm(rpm: float | None) -> float | None:
+    if rpm is None:
+        return None
+    rpm = float(rpm)
+    if not np.isfinite(rpm) or rpm <= 0.0:
+        raise ValueError("rpm must be finite and positive")
+    return rpm
+
+
+def _validated_top_peaks(top_peaks: int) -> int:
+    top_peaks = int(top_peaks)
+    if top_peaks < 0:
+        raise ValueError("top_peaks must be greater than or equal to 0")
+    return top_peaks
 
 
 def _finite_values(values: np.ndarray) -> tuple[np.ndarray, list[str]]:
@@ -168,7 +186,12 @@ def _time_domain_features(values: np.ndarray, sample_rate_hz: float) -> dict[str
     }
 
 
-def _frequency_features(values: np.ndarray, sample_rate_hz: float, rpm: float | None, top_peaks: int) -> dict[str, Any]:
+def _frequency_features(
+    values: np.ndarray,
+    sample_rate_hz: float,
+    rpm: float | None,
+    top_peaks: int,
+) -> tuple[dict[str, Any], list[str]]:
     n = values.size
     windowed = values * np.hanning(n)
     frequencies = np.fft.rfftfreq(n, d=1.0 / sample_rate_hz)
@@ -193,16 +216,20 @@ def _frequency_features(values: np.ndarray, sample_rate_hz: float, rpm: float | 
     )
     cumulative = np.cumsum(amplitudes)
     rolloff_index = int(np.searchsorted(cumulative, 0.85 * cumulative[-1])) if cumulative.size and cumulative[-1] > 0 else 0
-    return {
-        "dominant_frequency_hz": dominant_frequency_hz,
-        "spectral_peaks": peak_rows,
-        "spectral_centroid_hz": centroid,
-        "spectral_bandwidth_hz": bandwidth,
-        "spectral_rolloff_hz": float(frequencies[min(rolloff_index, len(frequencies) - 1)]) if frequencies.size else 0.0,
-        "bands": _band_features(frequencies, amplitudes, sample_rate_hz),
-        "_spectrum": {"frequency_hz": frequencies.tolist(), "amplitude": amplitudes.tolist()},
-        "_psd": {"frequency_hz": psd_freq.tolist(), "power": psd_values.tolist()},
-    }
+    bands, warnings = _band_features(frequencies, amplitudes, sample_rate_hz)
+    return (
+        {
+            "dominant_frequency_hz": dominant_frequency_hz,
+            "spectral_peaks": peak_rows,
+            "spectral_centroid_hz": centroid,
+            "spectral_bandwidth_hz": bandwidth,
+            "spectral_rolloff_hz": float(frequencies[min(rolloff_index, len(frequencies) - 1)]) if frequencies.size else 0.0,
+            "bands": bands,
+            "_spectrum": {"frequency_hz": frequencies.tolist(), "amplitude": amplitudes.tolist()},
+            "_psd": {"frequency_hz": psd_freq.tolist(), "power": psd_values.tolist()},
+        },
+        warnings,
+    )
 
 
 def _envelope_features(values: np.ndarray, sample_rate_hz: float, rpm: float | None, top_peaks: int) -> dict[str, Any]:
@@ -246,32 +273,53 @@ def _with_order(frequency_hz: float, amplitude: float, rpm: float | None) -> dic
     return row
 
 
-def _band_features(frequencies: np.ndarray, amplitudes: np.ndarray, sample_rate_hz: float) -> list[dict[str, float]]:
+def _band_features(
+    frequencies: np.ndarray,
+    amplitudes: np.ndarray,
+    sample_rate_hz: float,
+) -> tuple[list[dict[str, float]], list[str]]:
     nyquist = sample_rate_hz / 2.0
-    edges = list(DEFAULT_BANDS_HZ) + [(5000.0, nyquist)]
     rows: list[dict[str, float]] = []
+    warnings: list[str] = []
     total_energy = float(np.sum(amplitudes**2))
-    for low, high in edges:
-        clipped_low = max(0.0, low)
-        clipped_high = min(high, nyquist)
-        if clipped_high <= clipped_low:
+    for low, high in DEFAULT_BANDS_HZ:
+        if low >= nyquist:
+            warnings.append(
+                f"frequency band {low:.1f}-{high:.1f} Hz omitted because Nyquist {nyquist:.1f} Hz is below {low:.1f} Hz"
+            )
             continue
-        is_final_band = np.isclose(clipped_high, nyquist)
-        if is_final_band:
-            mask = (frequencies >= clipped_low) & (frequencies <= clipped_high)
-        else:
-            mask = (frequencies >= clipped_low) & (frequencies < clipped_high)
-        energy = float(np.sum(amplitudes[mask] ** 2))
-        rows.append(
-            {
-                "low_hz": clipped_low,
-                "high_hz": clipped_high,
-                "energy": energy,
-                "rms": float(np.sqrt(np.mean(amplitudes[mask] ** 2))) if np.any(mask) else 0.0,
-                "energy_ratio": float(energy / total_energy) if total_energy > 0 else 0.0,
-            }
-        )
-    return rows
+        clipped_high = min(high, nyquist)
+        if clipped_high < high:
+            warnings.append(
+                f"frequency band {low:.1f}-{high:.1f} Hz clipped to {low:.1f}-{clipped_high:.1f} Hz by Nyquist {nyquist:.1f} Hz"
+            )
+        rows.append(_band_row(frequencies, amplitudes, low, clipped_high, nyquist, total_energy))
+    if nyquist > DEFAULT_BANDS_HZ[-1][1]:
+        rows.append(_band_row(frequencies, amplitudes, DEFAULT_BANDS_HZ[-1][1], nyquist, nyquist, total_energy))
+    return rows, warnings
+
+
+def _band_row(
+    frequencies: np.ndarray,
+    amplitudes: np.ndarray,
+    low_hz: float,
+    high_hz: float,
+    nyquist: float,
+    total_energy: float,
+) -> dict[str, float]:
+    is_final_band = np.isclose(high_hz, nyquist)
+    if is_final_band:
+        mask = (frequencies >= low_hz) & (frequencies <= high_hz)
+    else:
+        mask = (frequencies >= low_hz) & (frequencies < high_hz)
+    energy = float(np.sum(amplitudes[mask] ** 2))
+    return {
+        "low_hz": low_hz,
+        "high_hz": high_hz,
+        "energy": energy,
+        "rms": float(np.sqrt(np.mean(amplitudes[mask] ** 2))) if np.any(mask) else 0.0,
+        "energy_ratio": float(energy / total_energy) if total_energy > 0 else 0.0,
+    }
 
 
 def _analysis_notes(time_features: dict[str, float], frequency_features: dict[str, Any], values: np.ndarray) -> list[str]:

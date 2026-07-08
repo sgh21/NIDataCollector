@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 import re
 from pathlib import Path
 from typing import Any
@@ -19,13 +20,17 @@ def write_analysis_outputs(analysis: dict[str, Any], output_dir: Path | str) -> 
     figures_dir = root / "figures"
     figures_dir.mkdir(parents=True, exist_ok=True)
 
-    for channel in analysis["channels"]:
-        _write_channel_figures(channel, figures_dir)
+    generated_figures = [
+        _write_channel_figures(index, channel, figures_dir) for index, channel in enumerate(analysis["channels"])
+    ]
 
     json_path = root / "vibration_analysis.json"
     markdown_path = root / "vibration_analysis.md"
-    json_path.write_text(json.dumps(_json_safe(analysis), indent=2, ensure_ascii=False), encoding="utf-8")
-    markdown_path.write_text(_markdown_report(analysis), encoding="utf-8")
+    json_path.write_text(
+        json.dumps(_json_safe(analysis), indent=2, ensure_ascii=False, allow_nan=False),
+        encoding="utf-8",
+    )
+    markdown_path.write_text(_markdown_report(analysis, generated_figures), encoding="utf-8")
     return {"json": json_path, "markdown": markdown_path, "figures_dir": figures_dir}
 
 
@@ -42,14 +47,23 @@ def _json_safe(value: Any) -> Any:
     if isinstance(value, tuple):
         return [_json_safe(inner) for inner in value]
     if isinstance(value, np.ndarray):
-        return value.tolist()
+        return _json_safe(value.tolist())
     if isinstance(value, np.generic):
-        return value.item()
+        return _json_safe(value.item())
+    if isinstance(value, float):
+        if not math.isfinite(value):
+            raise ValueError(f"analysis contains non-finite numeric value: {value!r}")
+        return value
     return value
 
 
-def _write_channel_figures(channel: dict[str, Any], figures_dir: Path) -> None:
-    safe = _safe_name(channel["channel"])
+def _figure_base_name(index: int, channel_name: str) -> str:
+    return f"{index}_{_safe_name(channel_name)}"
+
+
+def _write_channel_figures(channel_index: int, channel: dict[str, Any], figures_dir: Path) -> list[tuple[str, str]]:
+    safe = _figure_base_name(channel_index, channel["channel"])
+    generated: list[tuple[str, str]] = []
     spectrum = channel["frequency_domain"].get("_spectrum", {})
     frequency = spectrum.get("frequency_hz")
     amplitude = spectrum.get("amplitude")
@@ -65,43 +79,52 @@ def _write_channel_figures(channel: dict[str, Any], figures_dir: Path) -> None:
     time_axis = np.arange(sample_count) / sample_rate_hz
     waveform = channel.get("_waveform")
     if waveform is not None and np.asarray(waveform).size:
+        waveform_name = f"{safe}_waveform.png"
         _line_plot(
             time_axis,
             waveform,
             "Time (s)",
             f"Amplitude ({channel['basic']['unit']})",
             channel["channel"],
-            figures_dir / f"{safe}_waveform.png",
+            figures_dir / waveform_name,
         )
+        generated.append(("Waveform", f"figures/{waveform_name}"))
 
     if frequency is not None and amplitude is not None:
+        spectrum_name = f"{safe}_spectrum.png"
         _line_plot(
             frequency,
             amplitude,
             "Frequency (Hz)",
             "Amplitude",
             f"{channel['channel']} amplitude spectrum",
-            figures_dir / f"{safe}_spectrum.png",
+            figures_dir / spectrum_name,
         )
+        generated.append(("Amplitude spectrum", f"figures/{spectrum_name}"))
     if psd_frequency is not None and psd_power is not None:
+        psd_name = f"{safe}_psd.png"
         _line_plot(
             psd_frequency,
             psd_power,
             "Frequency (Hz)",
             "PSD",
             f"{channel['channel']} Welch PSD",
-            figures_dir / f"{safe}_psd.png",
+            figures_dir / psd_name,
             yscale="log",
         )
+        generated.append(("Welch PSD", f"figures/{psd_name}"))
     if envelope_frequency is not None and envelope_amplitude is not None:
+        envelope_name = f"{safe}_envelope_spectrum.png"
         _line_plot(
             envelope_frequency,
             envelope_amplitude,
             "Frequency (Hz)",
             "Amplitude",
             f"{channel['channel']} envelope spectrum",
-            figures_dir / f"{safe}_envelope_spectrum.png",
+            figures_dir / envelope_name,
         )
+        generated.append(("Envelope spectrum", f"figures/{envelope_name}"))
+    return generated
 
 
 def _line_plot(x: Any, y: Any, xlabel: str, ylabel: str, title: str, path: Path, yscale: str = "linear") -> None:
@@ -117,7 +140,7 @@ def _line_plot(x: Any, y: Any, xlabel: str, ylabel: str, title: str, path: Path,
     plt.close(fig)
 
 
-def _markdown_report(analysis: dict[str, Any]) -> str:
+def _markdown_report(analysis: dict[str, Any], generated_figures: list[list[tuple[str, str]]]) -> str:
     lines = [
         "# Vibration Analysis Report",
         "",
@@ -138,8 +161,7 @@ def _markdown_report(analysis: dict[str, Any]) -> str:
             ]
         )
 
-    for channel in analysis["channels"]:
-        safe = _safe_name(channel["channel"])
+    for index, channel in enumerate(analysis["channels"]):
         lines.extend([f"## Channel `{channel['channel']}`", ""])
         feature_rows = [
             {"feature": key, "value": value}
@@ -163,15 +185,9 @@ def _markdown_report(analysis: dict[str, Any]) -> str:
             lines.extend(["### Warnings", ""])
             lines.extend([f"- {warning}" for warning in channel["warnings"]])
             lines.append("")
-        lines.extend(
-            [
-                "### Figures",
-                "",
-                f"- [Waveform](figures/{safe}_waveform.png)",
-                f"- [Amplitude spectrum](figures/{safe}_spectrum.png)",
-                f"- [Welch PSD](figures/{safe}_psd.png)",
-                f"- [Envelope spectrum](figures/{safe}_envelope_spectrum.png)",
-                "",
-            ]
-        )
+        figure_links = generated_figures[index]
+        if figure_links:
+            lines.extend(["### Figures", ""])
+            lines.extend([f"- [{label}]({relative_path})" for label, relative_path in figure_links])
+            lines.append("")
     return "\n".join(lines)
